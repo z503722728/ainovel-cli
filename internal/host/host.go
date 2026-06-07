@@ -488,6 +488,8 @@ func (h *Host) AskUser() *tools.AskUserTool { return h.askUser }
 func (h *Host) RulesFS() fs.FS              { return h.bundle.RulesFS }
 func (h *Host) Style() string               { return h.cfg.Style }
 func (h *Host) SetStyle(style string)       { h.cfg.Style = style }
+func (h *Host) EmbeddedStyles() map[string]string { return h.bundle.Styles }
+func (h *Host) SetReviewEnabled(v bool)     { h.cfg.ReviewEnabled = v }
 
 // ── 事件发射 ──
 
@@ -601,6 +603,7 @@ func (h *Host) Snapshot() UISnapshot {
 		ModelName:              model,
 		ModelContextWindow:     modelWindow,
 		Style:                  h.cfg.Style,
+		ReviewEnabled:          h.cfg.ReviewEnabled,
 		RuntimeState:           string(state),
 		IsRunning:              state == lifecycleRunning,
 		TotalInputTokens:       tokIn,

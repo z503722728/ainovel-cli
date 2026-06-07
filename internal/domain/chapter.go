@@ -9,11 +9,20 @@ import (
 const ReviewInterval = 5
 
 // ShouldReview 根据已完成章节数判断是否需要全局审阅（短篇/中篇模式）。
+// 当 ReviewEnabled 为 true 时，每章完成后都触发审阅。
 func ShouldReview(completedCount int) (bool, string) {
 	if completedCount > 0 && completedCount%ReviewInterval == 0 {
 		return true, fmt.Sprintf("已完成 %d 章，触发全局审阅", completedCount)
 	}
 	return false, ""
+}
+
+// ShouldReviewWithMode 考虑审阅模式开关。enabled=true 时每章都审阅。
+func ShouldReviewWithMode(completedCount int, enabled bool) (bool, string) {
+	if enabled && completedCount > 0 {
+		return true, fmt.Sprintf("审阅模式已开启，第 %d 章完成，等待审查", completedCount)
+	}
+	return ShouldReview(completedCount)
 }
 
 // ShouldArcReview 长篇模式下判断是否需要弧级/卷级评审。

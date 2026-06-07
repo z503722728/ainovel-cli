@@ -18,8 +18,9 @@ import (
 
 // CommitChapterTool 提交章节：加载正文 → 保存终稿 → 生成摘要 → 更新状态 → 更新进度。
 type CommitChapterTool struct {
-	store     *store.Store
-	rulesOpts rules.LoadOptions // 可选；空 LoadOptions 时不产生 rule_violations
+	store         *store.Store
+	rulesOpts     rules.LoadOptions // 可选；空 LoadOptions 时不产生 rule_violations
+	reviewEnabled bool              // 审阅模式：true 时每章完成后都要求审查
 }
 
 func NewCommitChapterTool(store *store.Store) *CommitChapterTool {
@@ -30,6 +31,12 @@ func NewCommitChapterTool(store *store.Store) *CommitChapterTool {
 // 不调用此方法时 commit_chapter 行为不变（向后兼容，便于测试）。
 func (t *CommitChapterTool) WithRules(opts rules.LoadOptions) *CommitChapterTool {
 	t.rulesOpts = opts
+	return t
+}
+
+// WithReviewEnabled 设置审阅模式：true 时每章完成都触发 review_required。
+func (t *CommitChapterTool) WithReviewEnabled(v bool) *CommitChapterTool {
+	t.reviewEnabled = v
 	return t
 }
 
@@ -282,7 +289,7 @@ func (t *CommitChapterTool) Execute(_ context.Context, args json.RawMessage) (js
 	if progress != nil && progress.Layered {
 		reviewRequired, reviewReason = domain.ShouldArcReview(arcEnd, volumeEnd, vol, arc)
 	} else {
-		reviewRequired, reviewReason = domain.ShouldReview(completedCount)
+		reviewRequired, reviewReason = domain.ShouldReviewWithMode(completedCount, t.reviewEnabled)
 	}
 
 	// 7. 构造结构化信号

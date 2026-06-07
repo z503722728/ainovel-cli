@@ -57,6 +57,7 @@ type UISnapshot struct {
 	PendingSteer       string
 	RecoveryLabel      string
 	IsRunning          bool
+	ReviewEnabled      bool // 审阅模式是否开启
 	Agents             []AgentSnapshot
 
 	// 上下文

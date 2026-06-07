@@ -80,8 +80,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveFileSave(w, r)
 	case r.URL.Path == "/api/projects" && r.Method == http.MethodGet:
 		h.serveProjects(w, r)
+	case r.URL.Path == "/api/projects" && r.Method == http.MethodPost:
+		h.serveProjectCreate(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/projects/") && r.Method == http.MethodPost:
 		h.serveProjectSwitch(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/projects/") && r.Method == http.MethodDelete:
+		h.serveProjectDelete(w, r)
 	case r.URL.Path == "/api/rules" && r.Method == http.MethodGet:
 		h.serveRulesBundle(w, r)
 	case r.URL.Path == "/api/rules/sources" && r.Method == http.MethodGet:
@@ -98,6 +102,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveReviewFileRead(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/review-files/") && r.Method == http.MethodPost:
 		h.serveReviewFileSave(w, r)
+	case r.URL.Path == "/api/review/toggle" && r.Method == http.MethodPost:
+		h.serveReviewToggle(w, r)
 	case r.URL.Path == "/api/review/approve" && r.Method == http.MethodPost:
 		h.serveReviewApprove(w, r)
 	case r.URL.Path == "/api/review/skip" && r.Method == http.MethodPost:
@@ -524,10 +530,12 @@ func (h *Handler) serveFileSave(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// serveProjects 扫描 output/novel/ 下所有子目录，返回项目列表。
+// serveProjects 扫描输出目录的父目录，返回所有子目录（即项目列表）。
+// 当前活跃项目通过 name 标记为 "active"。
 func (h *Handler) serveProjects(w http.ResponseWriter, r *http.Request) {
-	root := h.novelDir()
-	entries, err := os.ReadDir(root)
+	currentDir := h.novelDir()
+	parentDir := filepath.Dir(currentDir)
+	entries, err := os.ReadDir(parentDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			writeJSON(w, http.StatusOK, []map[string]string{})
@@ -538,18 +546,26 @@ func (h *Handler) serveProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type project struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
+		Name   string `json:"name"`
+		Path   string `json:"path"`
+		Active bool   `json:"active,omitempty"`
 	}
 
+	currentName := filepath.Base(currentDir)
 	var projects []project
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == ".git" {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		// 只看是否像小说项目（含 chapters/ / meta/ / outline/ 子目录）
+		projDir := filepath.Join(parentDir, entry.Name())
+		if !looksLikeProject(projDir) {
 			continue
 		}
 		projects = append(projects, project{
-			Name: entry.Name(),
-			Path: entry.Name(),
+			Name:   entry.Name(),
+			Path:   entry.Name(),
+			Active: entry.Name() == currentName,
 		})
 	}
 
@@ -585,6 +601,93 @@ func (h *Handler) serveProjectSwitch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"project":  name,
 		"switched": true,
+	})
+}
+
+// looksLikeProject 检查目录是否像小说项目（含 chapters/ / meta/ / outline/ 子目录）。
+func looksLikeProject(dir string) bool {
+	for _, sub := range []string{"chapters", "meta", "outline"} {
+		info, err := os.Stat(filepath.Join(dir, sub))
+		if err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// serveProjectCreate 在输出目录的同级目录下创建新项目。
+func (h *Handler) serveProjectCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "项目名不能为空"})
+		return
+	}
+	// 安全检查
+	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的项目名"})
+		return
+	}
+
+	parentDir := filepath.Dir(h.novelDir())
+	newDir := filepath.Join(parentDir, name)
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// 切换到新项目
+	if err := h.rt.SetDir(newDir); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project": name,
+		"created": true,
+		"dir":     newDir,
+	})
+}
+
+// serveProjectDelete 删除指定项目目录。
+func (h *Handler) serveProjectDelete(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少项目名称"})
+		return
+	}
+	// 不允许删除当前项目
+	currentName := filepath.Base(h.novelDir())
+	if name == currentName {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "不能删除当前活跃项目，请先切换到其他项目"})
+		return
+	}
+
+	parentDir := filepath.Dir(h.novelDir())
+	targetDir := filepath.Join(parentDir, name)
+
+	// 安全检查：确保目标在 parentDir 下
+	absParent, _ := filepath.Abs(parentDir)
+	absTarget, _ := filepath.Abs(targetDir)
+	if !strings.HasPrefix(absTarget, absParent+string(filepath.Separator)) && absTarget != absParent {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的项目路径"})
+		return
+	}
+
+	if err := os.RemoveAll(targetDir); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project": name,
+		"deleted": true,
 	})
 }
 
@@ -944,13 +1047,27 @@ func (h *Handler) serveStylesList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, styles)
 }
 
-// serveStyleFileGet 读取单个风格文件内容。
+// serveStyleFileGet 读取单个风格文件内容。内置风格从嵌入 FS 读取，自定义风格从 ~/.ainovel/styles/ 读取。
 func (h *Handler) serveStyleFileGet(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/api/styles/")
 	if name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少风格名称"})
 		return
 	}
+
+	// 内置风格：从嵌入的 assets.Load() 读取
+	builtin := map[string]bool{"default": true, "suspense": true, "fantasy": true, "romance": true}
+	if builtin[name] {
+		embedded := h.rt.EmbeddedStyles()
+		if content, ok := embedded[name]; ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"name":    name,
+				"content": content,
+			})
+			return
+		}
+	}
+
 	path := filepath.Join(h.stylesDir(), name+".md")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1170,6 +1287,43 @@ func (h *Handler) serveReviewFileSave(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── 审查操作 ──
+
+// serveReviewToggle 切换审阅模式开关，保存到 ~/.ainovel/config.json。
+func (h *Handler) serveReviewToggle(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	configPath := bootstrap.DefaultConfigPath()
+	if configPath == "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "无法解析配置路径"})
+		return
+	}
+
+	var cfg bootstrap.Config
+	if data, err := os.ReadFile(configPath); err == nil {
+		cleaned := bootstrap.StripJSONComments(data)
+		if err := json.Unmarshal(cleaned, &cfg); err != nil {
+			cfg = bootstrap.Config{}
+		}
+	}
+	cfg.ReviewEnabled = req.Enabled
+	if err := bootstrap.SaveConfig(configPath, cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	// 同步更新内存中的配置
+	h.rt.SetReviewEnabled(req.Enabled)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"review_enabled": req.Enabled,
+		"saved":          true,
+	})
+}
 
 // serveReviewApprove 审查通过，恢复创作流程。
 func (h *Handler) serveReviewApprove(w http.ResponseWriter, r *http.Request) {

@@ -72,7 +72,7 @@ func BuildCoordinator(
 		tools.NewDraftChapterTool(store),
 		tools.NewEditChapterTool(store),
 		tools.NewCheckConsistencyTool(store),
-		tools.NewCommitChapterTool(store).WithRules(rulesOpts),
+		tools.NewCommitChapterTool(store).WithRules(rulesOpts).WithReviewEnabled(cfg.ReviewEnabled),
 	}
 	editorTools := []agentcore.Tool{
 		contextTool,
