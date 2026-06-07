@@ -14,6 +14,7 @@ import (
 // StopGuard 是"物理不可停机"的最后防线。
 // 当 LLM 试图 end_turn 时：
 //   - Progress.Phase = Complete → 放行
+//   - Progress.Phase = Review → 放行（审查阶段强制暂停，不注入继续消息）
 //   - 否则注入 user message，让 agent 继续下一 turn
 //   - 连续阻拦超过 maxConsecutive 次 → Escalate 终止 run（说明 prompt/reminder 严重失灵）
 //
@@ -30,6 +31,13 @@ func NewStopGuard(st *store.Store, onBlock func(reason string, consecutive int32
 	return func(_ context.Context, info agentcore.StopInfo) agentcore.StopDecision {
 		progress, _ := st.Progress.Load()
 		if progress != nil && progress.Phase == domain.PhaseComplete {
+			consecutive.Store(0)
+			lastBlockTurn.Store(-1)
+			return agentcore.StopDecision{Allow: true}
+		}
+		// PhaseReview 时强制停止 Coordinator，不注入继续消息。
+		// 否则 Coordinator 会绕过审查直接调 Writer，导致 /api/review/approve 返回 "host not idle"。
+		if progress != nil && progress.Phase == domain.PhaseReview {
 			consecutive.Store(0)
 			lastBlockTurn.Store(-1)
 			return agentcore.StopDecision{Allow: true}

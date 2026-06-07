@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/voocel/ainovel-cli/assets"
 	"github.com/voocel/ainovel-cli/internal/bootstrap"
 	"github.com/voocel/ainovel-cli/internal/entry/headless"
 	"github.com/voocel/ainovel-cli/internal/entry/tui"
+	"github.com/voocel/ainovel-cli/internal/host"
 	"github.com/voocel/ainovel-cli/internal/rules"
+	"github.com/voocel/ainovel-cli/internal/web"
 )
 
 var (
@@ -27,8 +32,8 @@ func main() {
 
 	// 首次引导
 	if bootstrap.NeedsSetup(opts.ConfigPath) {
-		if opts.Headless {
-			fmt.Fprintln(os.Stderr, "error: headless 模式不支持首次引导，请先运行一次 TUI 完成配置")
+		if opts.Headless || opts.WebAddr != "" {
+			fmt.Fprintln(os.Stderr, "error: headless/web 模式不支持首次引导，请先运行一次 TUI 完成配置")
 			os.Exit(1)
 		}
 		setupCfg, err := bootstrap.RunSetup()
@@ -60,6 +65,13 @@ func runWithConfig(cfg bootstrap.Config, opts cliOptions, args []string) {
 	}
 
 	bundle := assets.Load(cfg.Style)
+
+	// Web 模式：启动 HTTP/SSE 服务器
+	if opts.WebAddr != "" {
+		runWebServer(cfg, bundle, opts.WebAddr)
+		return
+	}
+
 	if opts.Headless {
 		prompt, err := loadPrompt(opts)
 		if err != nil {
@@ -82,9 +94,40 @@ func runWithConfig(cfg bootstrap.Config, opts cliOptions, args []string) {
 	}
 }
 
+func runWebServer(cfg bootstrap.Config, bundle assets.Bundle, addr string) {
+	rt, err := host.New(cfg, bundle)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: create host: %v\n", err)
+		os.Exit(1)
+	}
+	defer rt.Close()
+
+	srv, err := web.NewServer(rt, addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	if err := srv.Serve(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "error: web server: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 type cliOptions struct {
 	ConfigPath string
 	Headless   bool
+	WebAddr    string
 	Prompt     string
 	PromptFile string
 }
@@ -103,6 +146,13 @@ func parseCLIOptions(argv []string) (cliOptions, []string, error) {
 			i++
 		case "--headless":
 			opts.Headless = true
+		case "--web":
+			if i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "--") {
+				opts.WebAddr = argv[i+1]
+				i++
+			} else {
+				opts.WebAddr = "0.0.0.0:8080"
+			}
 		case "--prompt":
 			if i+1 >= len(argv) {
 				return opts, nil, fmt.Errorf("--prompt 缺少值")

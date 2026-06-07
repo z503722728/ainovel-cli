@@ -35,11 +35,23 @@ func TestStopGuard_AllowsStopOnlyWhenComplete(t *testing.T) {
 		t.Fatal("inject message required when blocking")
 	}
 
+	// PhaseReview：强制放行（不注入继续消息）
+	if err := s.Progress.UpdatePhase(domain.PhaseReview); err != nil {
+		t.Fatalf("update phase: %v", err)
+	}
+	decision = guard(context.Background(), agentcore.StopInfo{TurnIndex: 2})
+	if !decision.Allow {
+		t.Fatal("stop must be allowed when Phase=Review")
+	}
+	if decision.InjectMessage != "" {
+		t.Fatal("inject message must NOT be set when Phase=Review (coordinator should stop silently)")
+	}
+
 	// 转 Complete：放行
 	if err := s.Progress.UpdatePhase(domain.PhaseComplete); err != nil {
 		t.Fatalf("update phase: %v", err)
 	}
-	decision = guard(context.Background(), agentcore.StopInfo{TurnIndex: 2})
+	decision = guard(context.Background(), agentcore.StopInfo{TurnIndex: 3})
 	if !decision.Allow {
 		t.Fatal("stop must be allowed when Phase=Complete")
 	}

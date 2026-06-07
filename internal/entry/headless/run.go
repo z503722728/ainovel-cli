@@ -79,10 +79,39 @@ func Run(cfg bootstrap.Config, bundle assets.Bundle, opts Options) error {
 			return fmt.Errorf("headless 模式需要 --prompt，或输出目录 %q 下已有可恢复会话", eng.Dir())
 		}
 		fmt.Fprintf(stderr, "headless 恢复: %s (%s)\n", eng.Dir(), label)
-		return consume(eng, stdout, stderr, roundHasContent)
+		if err := consume(eng, stdout, stderr, roundHasContent); err != nil {
+			return err
+		}
+		// 恢复模式也可能进入审查暂停（例如之前中断在 review 阶段）
+		p := eng.Progress()
+		if p != nil && p.Phase == domain.PhaseReview {
+			goto reviewLoop
+		}
+		return nil
 	}
 
-	return consume(eng, stdout, stderr, false)
+	if err := consume(eng, stdout, stderr, false); err != nil {
+		return err
+	}
+
+reviewLoop:
+	// 审查模式：Architect 生成设定后 Phase=Review，等待用户编辑并确认
+	for {
+		p := eng.Progress()
+		if p == nil || p.Phase != domain.PhaseReview {
+			return nil
+		}
+		fmt.Fprintf(stderr, "\n设定已生成，编辑后按 Enter 继续...\n")
+		buf := make([]byte, 1024)
+		_, _ = stdin.Read(buf)
+		if err := eng.ResumeAfterReview(); err != nil {
+			return fmt.Errorf("resume after review: %w", err)
+		}
+		// 进入写作阶段，继续消费事件
+		if err := consume(eng, stdout, stderr, false); err != nil {
+			return err
+		}
+	}
 }
 
 func consume(eng *host.Host, stdout, stderr io.Writer, roundHasContent bool) error {

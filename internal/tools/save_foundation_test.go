@@ -16,7 +16,7 @@ func TestSaveFoundationPersistsPlanningTier(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(store)
+	tool := NewSaveFoundationTool(store, false)
 	args, err := json.Marshal(map[string]any{
 		"type":    "premise",
 		"content": "# 测试书名\n\n## 题材和基调\n测试",
@@ -52,7 +52,7 @@ func TestSaveFoundationPremiseSetsNovelName(t *testing.T) {
 		t.Fatalf("Init progress: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(store)
+	tool := NewSaveFoundationTool(store, false)
 	args, err := json.Marshal(map[string]any{
 		"type": "premise",
 		"content": `# 长夜燃灯
@@ -90,7 +90,7 @@ func TestSaveFoundationOutlineClearsLayeredStateWhenDowngrading(t *testing.T) {
 		t.Fatalf("InitProgress: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(store)
+	tool := NewSaveFoundationTool(store, false)
 
 	layeredArgs, err := json.Marshal(map[string]any{
 		"type":    "layered_outline",
@@ -160,7 +160,7 @@ func TestSaveFoundationAppendVolume(t *testing.T) {
 		t.Fatalf("InitProgress: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 
 	// 先创建初始 layered_outline（卷1）
 	layeredArgs, _ := json.Marshal(map[string]any{
@@ -219,7 +219,7 @@ func TestSaveFoundationAppendVolumeValidation(t *testing.T) {
 		t.Fatalf("InitProgress: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 
 	// 初始卷
 	layeredArgs, _ := json.Marshal(map[string]any{
@@ -267,7 +267,7 @@ func TestSaveFoundationAppendVolumeRejectsAfterComplete(t *testing.T) {
 		t.Fatalf("MarkComplete: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	appendArgs, _ := json.Marshal(map[string]any{
 		"type": "append_volume",
 		"content": map[string]any{
@@ -290,7 +290,7 @@ func TestSaveFoundationUpdateCompass(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type": "update_compass",
 		"content": map[string]any{
@@ -330,7 +330,7 @@ func TestSaveFoundationUpdateCompassOverridesLastUpdated(t *testing.T) {
 		t.Fatalf("Save progress: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type": "update_compass",
 		"content": map[string]any{
@@ -359,7 +359,7 @@ func TestSaveFoundationUpdateCompassRequiresDirection(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type":    "update_compass",
 		"content": map[string]any{"estimated_scale": "3 卷"},
@@ -377,7 +377,7 @@ func TestSaveFoundationAcceptsDirectJSONArrayContent(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	tool := NewSaveFoundationTool(store)
+	tool := NewSaveFoundationTool(store, false)
 	args, err := json.Marshal(map[string]any{
 		"type": "outline",
 		"content": []map[string]any{
@@ -427,7 +427,7 @@ func completeBookSetup(t *testing.T) *store.Store {
 
 func TestSaveFoundationCompleteBookPushesPhaseComplete(t *testing.T) {
 	s := completeBookSetup(t)
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type": "complete_book", "content": map[string]any{},
 	})
@@ -461,7 +461,7 @@ func TestSaveFoundationCompleteBookRejectsBeforeWriting(t *testing.T) {
 	}
 	_ = s.Progress.UpdatePhase(domain.PhasePremise)
 	_ = s.Progress.UpdatePhase(domain.PhaseOutline)
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type": "complete_book", "content": map[string]any{},
 	})
@@ -479,7 +479,7 @@ func TestSaveFoundationCompleteBookRejectsWithPendingRewrites(t *testing.T) {
 	if err := s.Progress.SetPendingRewrites([]int{2}, "尾章节奏过快"); err != nil {
 		t.Fatalf("SetPendingRewrites: %v", err)
 	}
-	tool := NewSaveFoundationTool(s)
+	tool := NewSaveFoundationTool(s, false)
 	args, _ := json.Marshal(map[string]any{
 		"type": "complete_book", "content": map[string]any{},
 	})

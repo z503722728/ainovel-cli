@@ -60,6 +60,8 @@ func describeResume(store *storepkg.Store, progress *domain.Progress) string {
 	switch progress.Phase {
 	case domain.PhasePremise, domain.PhaseOutline:
 		return fmt.Sprintf("恢复：规划阶段（%s）", progress.Phase)
+	case domain.PhaseReview:
+		return "恢复：审查阶段（基础设定已生成，等待确认）"
 	case domain.PhaseWriting:
 		// 优先级与 Router 的决策优先级对齐，让 label 与即将派发的指令一致。
 		if pending, _ := store.Signals.LoadPendingCommit(); pending != nil {

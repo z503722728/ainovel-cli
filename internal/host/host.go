@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -334,6 +335,7 @@ func (h *Host) Close() {
 //
 // 不做任何续跑。Run 结束 = Host 进入终态：
 //   - Phase=Complete  → 标记 completed，发"创作完成"事件
+//   - Phase=Review    → 标记 idle，发"等待审查"事件
 //   - 其它            → 标记 idle，发"Coordinator 停止"事件
 //
 // 用户要继续创作只有两条路径：手动 Continue（停机注入）或重启进程走 Resume。
@@ -350,6 +352,11 @@ func (h *Host) waitDone() {
 		h.mu.Unlock()
 		slog.Info(summary, "module", "host")
 		h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Summary: summary, Level: "success"})
+	} else if progress != nil && progress.Phase == domain.PhaseReview {
+		h.lifecycle = lifecycleIdle
+		h.mu.Unlock()
+		slog.Info("基础设定已生成，等待审查", "module", "host")
+		h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Summary: "基础设定已生成，等待审查后继续", Level: "info"})
 	} else {
 		wasRunning := h.lifecycle == lifecycleRunning
 		if wasRunning {
@@ -373,6 +380,99 @@ func (h *Host) waitDone() {
 	}
 }
 
+// ResumeAfterReview 审查完成后恢复：设 PhaseWriting 并立即返回 200。
+// 同步部分：Abort 停机 + UpdatePhase + router.Enable，保证 HTTP 请求不阻塞。
+// 异步部分：buildResumePrompt → coordinator.Prompt → router.Dispatch → waitDone，
+// 放在 goroutine 中执行，避免 Prompt 内部的 LLM 初始化导致 HTTP 超时。
+func (h *Host) ResumeAfterReview() error {
+	// 若 Coordinator 仍在运行（stop_guard 尚未触发或 waitDone 未完成），
+	// 先 Abort() 触发优雅停机再等待 waitDone 收尾，避免返回 "host not idle"。
+	h.mu.Lock()
+	lc := h.lifecycle
+	h.mu.Unlock()
+	if lc == lifecycleRunning {
+		h.Abort()
+	}
+
+	// 消费可能残留的 done 信号。
+	// 如果 lifecycle 已经是 idle，说明 waitDone 已执行完毕且已发送信号，
+	// drain 已经消费了该信号，不能再阻塞等待第二个信号（无人会发）。
+	// 仅当 lifecycle 非 idle（Abort 刚触发，waitDone 尚未完成）时才阻塞等待。
+	select {
+	case <-h.done:
+	default:
+	}
+	h.mu.Lock()
+	if h.lifecycle != lifecycleIdle {
+		h.mu.Unlock()
+		<-h.done
+	} else {
+		h.mu.Unlock()
+	}
+
+	h.mu.Lock()
+	if h.lifecycle != lifecycleIdle {
+		h.mu.Unlock()
+		return fmt.Errorf("host not idle")
+	}
+	h.mu.Unlock()
+
+	if err := h.store.Progress.UpdatePhase(domain.PhaseWriting); err != nil {
+		return fmt.Errorf("update phase: %w", err)
+	}
+
+	h.refreshWriterRestore()
+	h.observer.setAborting(false)
+	h.router.ResetDedupe()
+	h.router.Enable()
+
+	// 异步启动 Prompt + Dispatch + waitDone，避免 Prompt() 内部阻塞 HTTP 返回。
+	go func() {
+		prompt, _, err := buildResumePrompt(h.store)
+		if err != nil {
+			slog.Error("审查恢复：构建 resume prompt 失败", "module", "host", "err", err)
+			return
+		}
+		if err := h.coordinator.Prompt(prompt); err != nil {
+			slog.Error("审查恢复：resume prompt 失败", "module", "host", "err", err)
+			return
+		}
+		h.router.Dispatch()
+
+		h.mu.Lock()
+		h.lifecycle = lifecycleRunning
+		h.mu.Unlock()
+		h.waitDone()
+	}()
+
+	return nil
+}
+
+// ResumeAfterReviewWithAction 审查完成后恢复，并记录操作来源（approved/skipped），
+// 便于后续数据分析与审计追溯。
+func (h *Host) ResumeAfterReviewWithAction(action string) error {
+	label := action
+	switch action {
+	case "approved":
+		label = "审查通过"
+	case "skipped":
+		label = "审查跳过"
+	}
+	h.emitEvent(Event{
+		Time:     time.Now(),
+		Category: "SYSTEM",
+		Summary:  label + "，继续创作",
+		Level:    "info",
+	})
+	return h.ResumeAfterReview()
+}
+
+// Progress 返回当前创作进度。
+func (h *Host) Progress() *domain.Progress {
+	p, _ := h.store.Progress.Load()
+	return p
+}
+
 // ── 通道 ──
 
 // StreamClearSentinel 通过 streamCh 单条发送以示意"清空当前流式 round"。
@@ -383,7 +483,11 @@ func (h *Host) Events() <-chan Event        { return h.events }
 func (h *Host) Stream() <-chan string       { return h.streamCh }
 func (h *Host) Done() <-chan struct{}       { return h.done }
 func (h *Host) Dir() string                 { return h.store.Dir() }
+func (h *Host) SetDir(newDir string) error { return h.store.SetDir(newDir) }
 func (h *Host) AskUser() *tools.AskUserTool { return h.askUser }
+func (h *Host) RulesFS() fs.FS              { return h.bundle.RulesFS }
+func (h *Host) Style() string               { return h.cfg.Style }
+func (h *Host) SetStyle(style string)       { h.cfg.Style = style }
 
 // ── 事件发射 ──
 

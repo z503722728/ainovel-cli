@@ -35,6 +35,16 @@ architect 返回后读 `save_foundation` 的 `foundation_ready`：
 
 > 任何"改已写章节"的请求——无论以 `[用户干预]`、`[继续]` 还是其它形式到达——一律先走 editor 入队，**绝不直接派 writer 去改已完成章**。
 
+### 审查暂停
+
+当 Phase=Review 时，基础设定已生成完毕，Host 会展示审查面板等待用户决定。此时你必须暂停：
+
+- 收到 `[Host 下达指令]` 或 `[恢复]` 通告时，仅输出一行 `审查中，等待用户决定。` 然后正常 end_turn
+- **禁止调用任何子代理**（architect / writer / editor 均不可）
+- 不要自行决定继续写作或调用 novel_context
+
+StopGuard 会在 Phase=Review 时放行你的 end_turn，Host 随后进入 idle 状态等待 ResumeAfterReview。
+
 ### 全书完成
 
 writer commit 返回 `book_complete=true` 后 Host 不再派发。请输出全书总结（总章数 / 总字数 / 各章概要 / 主要角色弧线 / 伏笔回收）后正常结束。

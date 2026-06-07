@@ -117,6 +117,9 @@ type Config struct {
 	// 创作参数
 	Style string `json:"style,omitempty"`
 
+	// ReviewEnabled 开启后在 Architect 生成基础设定完成后暂停，等待人工审查后再继续写作。
+	ReviewEnabled bool `json:"review_enabled,omitempty"`
+
 	// ContextWindow 上下文压缩使用的窗口大小。留空（0）时按模型名自动解析：
 	// registry 命中用模型真实窗口，未命中兜底 DefaultContextWindow。
 	// 显式配置则优先生效——用于给 registry 查不到的自定义模型指定真实窗口，

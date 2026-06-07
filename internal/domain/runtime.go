@@ -9,8 +9,10 @@ const (
 	PhaseInit     Phase = "init"
 	PhasePremise  Phase = "premise"
 	PhaseOutline  Phase = "outline"
-	PhaseWriting  Phase = "writing"
-	PhaseComplete Phase = "complete"
+	PhaseReview        Phase = "review"
+	PhaseWriting       Phase = "writing"
+	PhaseChapterReview Phase = "chapter_review"
+	PhaseComplete      Phase = "complete"
 )
 
 // FlowState 当前活动流程类型，用于 checkpoint 恢复。

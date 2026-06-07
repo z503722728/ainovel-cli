@@ -10,7 +10,7 @@ import (
 //
 // Phase 表示大阶段，采用“只前进不回退”的约束：
 //
-//	init -> premise -> outline -> writing -> complete
+//	init -> premise -> outline -> review -> writing -> complete
 //	  \---------> outline ------^
 //	  \-----------------> writing
 //
@@ -28,8 +28,9 @@ var phaseOrder = map[Phase]int{
 	PhaseInit:     1,
 	PhasePremise:  2,
 	PhaseOutline:  3,
-	PhaseWriting:  4,
-	PhaseComplete: 5,
+	PhaseReview:   4,
+	PhaseWriting:  5,
+	PhaseComplete: 6,
 }
 
 // CanTransitionPhase 判断 Phase 是否允许迁移。

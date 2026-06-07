@@ -13,11 +13,12 @@ import (
 
 // SaveFoundationTool 保存基础设定（premise/outline/characters），Architect 专用。
 type SaveFoundationTool struct {
-	store *store.Store
+	store         *store.Store
+	reviewEnabled bool
 }
 
-func NewSaveFoundationTool(store *store.Store) *SaveFoundationTool {
-	return &SaveFoundationTool{store: store}
+func NewSaveFoundationTool(store *store.Store, reviewEnabled bool) *SaveFoundationTool {
+	return &SaveFoundationTool{store: store, reviewEnabled: reviewEnabled}
 }
 
 func (t *SaveFoundationTool) Name() string { return "save_foundation" }
@@ -250,8 +251,13 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 	if ready {
 		if p, _ := t.store.Progress.Load(); p != nil &&
 			p.Phase != domain.PhaseWriting && p.Phase != domain.PhaseComplete {
-			_ = t.store.Progress.UpdatePhase(domain.PhaseWriting)
-			result["phase"] = string(domain.PhaseWriting)
+			if t.reviewEnabled {
+				_ = t.store.Progress.UpdatePhase(domain.PhaseReview)
+				result["phase"] = string(domain.PhaseReview)
+			} else {
+				_ = t.store.Progress.UpdatePhase(domain.PhaseWriting)
+				result["phase"] = string(domain.PhaseWriting)
+			}
 		}
 	}
 	return json.Marshal(result)

@@ -248,7 +248,7 @@ func TestCommitChapterLayeredRejectsOutOfRangeChapter(t *testing.T) {
 	}
 
 	// 建一份 layered_outline，只有 1 卷 1 弧 1 章
-	foundation := NewSaveFoundationTool(s)
+	foundation := NewSaveFoundationTool(s, false)
 	layeredArgs, _ := json.Marshal(map[string]any{
 		"type": "layered_outline",
 		"content": []map[string]any{{
@@ -309,7 +309,7 @@ func TestCommitChapterLayeredAutoCompletesWhenDone(t *testing.T) {
 	}
 
 	// 单卷单弧两章，全部展开（无骨架弧）
-	foundation := NewSaveFoundationTool(s)
+	foundation := NewSaveFoundationTool(s, false)
 	layeredArgs, _ := json.Marshal(map[string]any{
 		"type": "layered_outline",
 		"content": []map[string]any{{
@@ -381,7 +381,7 @@ func TestCommitChapterLayeredNoAutoCompleteWithOpenThreads(t *testing.T) {
 		t.Fatalf("InitProgress: %v", err)
 	}
 
-	foundation := NewSaveFoundationTool(s)
+	foundation := NewSaveFoundationTool(s, false)
 	layeredArgs, _ := json.Marshal(map[string]any{
 		"type": "layered_outline",
 		"content": []map[string]any{{

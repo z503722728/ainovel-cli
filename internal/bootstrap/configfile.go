@@ -85,7 +85,7 @@ func loadJSONFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cleaned := stripJSONComments(data)
+	cleaned := StripJSONComments(data)
 	var cfg Config
 	if err := json.Unmarshal(cleaned, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
@@ -154,8 +154,8 @@ func mergeConfig(base, overlay Config) Config {
 	return base
 }
 
-// stripJSONComments 去除 JSON 中的 // 行注释，跟踪引号状态避免误删字符串内容。
-func stripJSONComments(data []byte) []byte {
+// StripJSONComments 去除 JSON 中的 // 行注释，跟踪引号状态避免误删字符串内容。
+func StripJSONComments(data []byte) []byte {
 	out := make([]byte, 0, len(data))
 	inString := false
 	escaped := false

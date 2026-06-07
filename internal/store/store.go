@@ -56,6 +56,35 @@ func NewStore(dir string) *Store {
 // Dir 返回输出根目录。
 func (s *Store) Dir() string { return s.dir }
 
+// SetDir 切换到新目录，重新初始化所有子存储。
+func (s *Store) SetDir(newDir string) error {
+	if newDir == s.dir {
+		return nil
+	}
+	// 确保目录存在
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		return err
+	}
+	s.dir = newDir
+	io := newIO(newDir)
+	outline := NewOutlineStore(io)
+	s.Progress = NewProgressStore(newIO(newDir))
+	s.Outline = outline
+	s.Drafts = NewDraftStore(newIO(newDir))
+	s.Summaries = NewSummaryStore(newIO(newDir), outline)
+	s.RunMeta = NewRunMetaStore(newIO(newDir))
+	s.Signals = NewSignalStore(newIO(newDir))
+	s.Runtime = NewRuntimeStore(newIO(newDir))
+	s.Characters = NewCharacterStore(newIO(newDir), outline)
+	s.Cast = NewCastStore(newIO(newDir))
+	s.World = NewWorldStore(newIO(newDir))
+	s.Checkpoints = NewCheckpointStore(io)
+	s.Sessions = NewSessionStore(newIO(newDir))
+	s.Usage = NewUsageStore(newIO(newDir))
+	s.Simulation = NewSimulationStore(newIO(newDir))
+	return s.Init()
+}
+
 // CheckConsistency 对事实层做一次浅层校验，用于启动/恢复时生成 warning。
 // 纯只读：不修正数据，仅返回可读的问题描述。调用方决定如何展示（log / UI）。
 // 为避免扫全目录带来的 IO 开销，只校验 Progress 的关键点：

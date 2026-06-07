@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>AINovel — AI 小说创作</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text2: #8b949e;
+  --accent: #58a6ff;
+  --success: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --bubble-user: #1f6feb;
+  --bubble-ai: #21262d;
+  --radius: 10px;
+  --touch-min: 44px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;
+  overflow:hidden;user-select:none;-webkit-user-select:none;
+}
+
+/* ── Top Bar ── */
+#topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);
+  min-height:48px;flex-shrink:0;gap:12px;
+}
+#topbar .title{font-size:1rem;font-weight:600;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+#topbar .progress{font-size:.8rem;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:6px}
+#topbar .progress .dot{width:8px;height:8px;border-radius:50%;background:var(--text2)}
+#topbar .progress .dot.running{background:var(--success);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Tabs ── */
+#tabs{
+  display:flex;flex-shrink:0;background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:0 8px;
+}
+#tabs button{
+  flex:1;height:var(--touch-min);border:none;background:none;color:var(--text2);
+  font-size:.9rem;font-weight:500;cursor:pointer;position:relative;
+  transition:color .2s;max-width:120px;
+}
+#tabs button.active{color:var(--accent)}
+#tabs button.active::after{
+  content:'';position:absolute;bottom:0;left:8px;right:8px;height:2px;
+  background:var(--accent);border-radius:2px;
+}
+
+/* ── Content Area ── */
+#content{flex:1;overflow:hidden;position:relative}
+.tab{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.tab.active{display:flex}
+
+/* ── Tab1: Writing ── */
+#stream-area{
+  flex:1;overflow-y:auto;padding:12px;font-family:"SF Mono","Cascadia Code","Fira Code",monospace;
+  font-size:.82rem;line-height:1.6;background:var(--bg);
+}
+#stream-area .line{padding:2px 0}
+#stream-area .ev-system{color:var(--text2)}
+#stream-area .ev-user{color:var(--accent)}
+#stream-area .ev-success{color:var(--success)}
+#stream-area .ev-warn{color:var(--warn)}
+#stream-area .ev-error{color:var(--error)}
+#stream-area .clear{color:#484f58;font-style:italic;text-align:center;margin:8px 0}
+#stream-area .ev-stream{color:var(--text);white-space:pre-wrap;word-break:break-word}
+
+/* co-create chat bubbles */
+#stream-area .bubble{margin:8px 0;padding:10px 14px;border-radius:var(--radius);max-width:88%;line-height:1.5;font-family:inherit;font-size:.85rem}
+#stream-area .bubble.user{background:var(--bubble-user);color:#fff;margin-left:auto}
+#stream-area .bubble.ai{background:var(--bubble-ai);border:1px solid var(--border);margin-right:auto}
+#stream-area .bubble .label{font-size:.7rem;color:var(--text2);margin-bottom:4px}
+#stream-area .bubble .draft{margin-top:8px;padding:10px;background:var(--bg3);border-radius:6px;font-size:.8rem;white-space:pre-wrap;max-height:200px;overflow-y:auto}
+
+/* input area */
+#input-area{
+  flex-shrink:0;padding:8px 12px;background:var(--bg2);border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:8px;
+}
+#input-area .row{display:flex;gap:8px;align-items:center}
+#input-area textarea{
+  flex:1;min-height:var(--touch-min);max-height:100px;resize:none;
+  background:var(--bg3);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:.9rem;padding:10px 12px;font-family:inherit;
+  outline:none;transition:border-color .2s;
+}
+#input-area textarea:focus{border-color:var(--accent)}
+#input-area button{
+  height:var(--touch-min);min-width:var(--touch-min);padding:0 16px;
+  border:1px solid var(--border);border-radius:8px;background:var(--bg3);
+  color:var(--text);font-size:.85rem;font-weight:500;cursor:pointer;
+  transition:background .2s,border-color .2s;display:flex;align-items:center;gap:4px;
+}
+#input-area button:active{background:var(--bg2)}
+#input-area button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+#input-area button.danger{background:var(--error);border-color:var(--error);color:#fff}
+#input-area button.warn{background:var(--warn);border-color:var(--warn);color:#000}
+
+/* suggestions */
+#suggestions{display:flex;flex-wrap:wrap;gap:6px}
+#suggestions .chip{
+  padding:6px 12px;border-radius:16px;background:var(--bg3);border:1px solid var(--border);
+  color:var(--accent);font-size:.8rem;cursor:pointer;transition:background .2s;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#suggestions .chip:active{background:var(--accent);color:#fff}
+
+/* ── Tab2: Files ── */
+#files-area{
+  flex:1;overflow-y:auto;padding:4px 0;background:var(--bg);
+}
+#files-area .node{
+  display:flex;align-items:center;gap:8px;padding:10px 16px;min-height:var(--touch-min);
+  cursor:pointer;border-bottom:1px solid var(--border);font-size:.9rem;
+  transition:background .15s;
+}
+#files-area .node:active{background:var(--bg2)}
+#files-area .node .icon{font-size:1.1rem;width:24px;text-align:center;flex-shrink:0}
+#files-area .node .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#files-area .node .size{font-size:.75rem;color:var(--text2);flex-shrink:0}
+#files-area .node.dir{color:var(--accent);font-weight:500}
+#files-area .node.file{color:var(--text)}
+#files-area .breadcrumb{
+  display:flex;align-items:center;padding:8px 16px;gap:4px;font-size:.8rem;
+  color:var(--text2);border-bottom:1px solid var(--border);overflow-x:auto;
+}
+#files-area .breadcrumb span{cursor:pointer;color:var(--accent);white-space:nowrap}
+#files-area .breadcrumb span.sep{color:var(--text2);cursor:default}
+#files-area .empty{padding:40px 16px;text-align:center;color:var(--text2);font-size:.85rem}
+
+/* Fullscreen reader */
+#reader-overlay{
+  position:fixed;inset:0;background:var(--bg);z-index:100;
+  display:none;flex-direction:column;
+}
+#reader-overlay.open{display:flex}
+#reader-overlay .reader-top{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);
+  min-height:48px;flex-shrink:0;
+}
+#reader-overlay .reader-top .filename{font-size:.9rem;font-weight:600;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#reader-overlay .reader-top button{
+  height:36px;padding:0 14px;border:1px solid var(--border);border-radius:6px;
+  background:var(--bg3);color:var(--text);font-size:.85rem;cursor:pointer;
+}
+#reader-overlay .reader-content{
+  flex:1;overflow-y:auto;padding:16px;font-family:monospace;font-size:.82rem;
+  line-height:1.7;white-space:pre-wrap;word-break:break-word;
+}
+#reader-overlay .reader-content.json .key{color:var(--accent)}
+#reader-overlay .reader-content.json .string{color:var(--success)}
+#reader-overlay .reader-content.json .number{color:var(--warn)}
+#reader-overlay .reader-content.json .boolean{color:var(--error)}
+#reader-overlay .reader-content.json .null{color:var(--text2)}
+
+/* ── Tab3: Settings ── */
+#settings-area{flex:1;overflow-y:auto;padding:16px;background:var(--bg)}
+#settings-area .section{margin-bottom:20px}
+#settings-area .section h3{font-size:.85rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+#settings-area .option{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px;background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;min-height:var(--touch-min);
+}
+#settings-area .option+.option{margin-top:8px}
+#settings-area .option .label{font-size:.9rem}
+#settings-area .option .desc{font-size:.75rem;color:var(--text2)}
+#settings-area select{
+  padding:6px 12px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);
+  color:var(--text);font-size:.85rem;min-width:140px;
+}
+#settings-area .toggle{
+  width:48px;height:28px;border-radius:14px;background:var(--bg3);border:1px solid var(--border);
+  position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;
+}
+#settings-area .toggle.on{background:var(--accent);border-color:var(--accent)}
+#settings-area .toggle::after{
+  content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;
+  border-radius:50%;background:#fff;transition:left .2s;
+}
+#settings-area .toggle.on::after{left:23px}
+#settings-area .info-row{
+  display:flex;justify-content:space-between;padding:6px 0;
+  font-size:.82rem;border-bottom:1px solid var(--border);
+}
+#settings-area .info-row:last-child{border-bottom:none}
+#settings-area .info-row .k{color:var(--text2)}
+#settings-area .info-row .v{color:var(--text)}
+
+/* Toast */
+#toast{
+  position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:200;
+  padding:10px 20px;border-radius:8px;font-size:.85rem;background:var(--bg3);
+  border:1px solid var(--border);color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,.3);
+  transition:opacity .3s;opacity:0;pointer-events:none;
+}
+#toast.show{opacity:1}
+#toast.error{color:var(--error);border-color:var(--error)}
+
+/* Spinner */
+.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Review Panel ── */
+#review-panel{
+  flex:1;overflow-y:auto;padding:16px;background:var(--bg);
+  display:none;flex-direction:column;gap:12px;
+}
+#review-panel.show{display:flex}
+#review-panel .rev-status{
+  padding:12px 16px;background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--radius);font-size:.9rem;line-height:1.5;
+}
+#review-panel .rev-status .icon{color:var(--success);margin-right:6px}
+#review-panel .rev-cards{display:flex;flex-direction:column;gap:10px}
+.rev-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px 14px;display:flex;flex-direction:column;gap:6px;
+}
+.rev-card .rev-card-top{display:flex;align-items:center;justify-content:space-between}
+.rev-card .rev-card-top .name{font-size:.9rem;font-weight:600;display:flex;align-items:center;gap:6px}
+.rev-card .rev-card-top .name .dot{margin-right:2px}
+.rev-card .rev-card-preview{
+  font-size:.78rem;color:var(--text2);line-height:1.5;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rev-card .edit-btn{
+  height:var(--touch-min);min-width:var(--touch-min);padding:0 14px;
+  border:1px solid var(--accent);border-radius:6px;background:transparent;
+  color:var(--accent);font-size:.82rem;cursor:pointer;
+  transition:background .2s;flex-shrink:0;
+}
+.rev-card .edit-btn:active{background:var(--accent);color:#fff}
+#review-panel .rev-actions{
+  display:flex;flex-direction:column;gap:8px;padding-top:8px;
+}
+#review-panel .rev-actions button{
+  width:100%;height:var(--touch-min);padding:0 16px;
+  border-radius:var(--radius);font-size:.9rem;font-weight:600;
+  cursor:pointer;transition:background .2s;border:none;
+}
+#review-panel .rev-actions .btn-approve{
+  background:var(--success);color:#000;
+}
+#review-panel .rev-actions .btn-approve:active{opacity:.8}
+#review-panel .rev-actions .btn-skip{
+  background:var(--bg3);color:var(--text2);border:1px solid var(--border);
+  font-size:.82rem;font-weight:400;
+}
+#review-panel .rev-actions .btn-skip:active{background:var(--bg2)}
+
+/* ── Review Editor Overlay ── */
+#rev-editor-overlay{
+  position:fixed;inset:0;background:var(--bg);z-index:150;
+  display:none;flex-direction:column;
+}
+#rev-editor-overlay.open{display:flex}
+#rev-editor-overlay .rev-editor-top{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);
+  min-height:48px;flex-shrink:0;gap:8px;
+}
+#rev-editor-overlay .rev-editor-top .filename{
+  font-size:.9rem;font-weight:600;color:var(--accent);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:1;
+}
+#rev-editor-overlay .rev-editor-top button{
+  height:36px;min-width:36px;padding:0 12px;border:1px solid var(--border);
+  border-radius:6px;background:var(--bg3);color:var(--text);
+  font-size:.85rem;cursor:pointer;flex-shrink:0;
+}
+#rev-editor-overlay .rev-editor-top button.save-btn{
+  background:var(--accent);border-color:var(--accent);color:#fff;
+}
+#rev-editor-overlay .rev-editor-content{
+  flex:1;overflow:hidden;display:flex;flex-direction:column;
+}
+#rev-editor-overlay .rev-editor-content textarea{
+  flex:1;width:100%;background:var(--bg);border:none;color:var(--text);
+  font-family:monospace;font-size:.82rem;line-height:1.7;
+  padding:16px;resize:none;outline:none;
+}
+#rev-editor-overlay .rev-editor-content .readonly-preview{
+  flex:1;overflow-y:auto;padding:16px;font-family:monospace;font-size:.82rem;
+  line-height:1.7;white-space:pre-wrap;word-break:break-word;
+  color:var(--text2);
+}
+#rev-editor-overlay .rev-editor-content .readonly-preview.json-preview .key{color:var(--accent)}
+#rev-editor-overlay .rev-editor-content .readonly-preview.json-preview .string{color:var(--success)}
+#rev-editor-overlay .rev-editor-content .readonly-preview.json-preview .number{color:var(--warn)}
+#rev-editor-overlay .rev-editor-content .readonly-preview.json-preview .boolean{color:var(--error)}
+#rev-editor-overlay .rev-editor-content .readonly-preview.json-preview .null{color:var(--text2)}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <span class="title" id="book-title">AINovel</span>
+  <select id="project-select" onchange="switchProject(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.8rem;padding:4px 8px;max-width:180px">
+    <option value="">加载中...</option>
+  </select>
+  <span class="progress" id="progress-bar">
+    <span class="dot" id="state-dot"></span>
+    <span id="progress-text">—</span>
+  </span>
+</div>
+
+<!-- Tabs -->
+<nav id="tabs">
+  <button class="active" data-tab="writing">✍️ 写作</button>
+  <button data-tab="files">📂 文件</button>
+  <button data-tab="settings">⚙️ 设置</button>
+</nav>
+
+<!-- Content -->
+<div id="content">
+
+  <!-- Tab1: Writing -->
+  <div class="tab active" id="tab-writing">
+    <div id="stream-area"></div>
+    <!-- Review Panel (shown when phase=review) -->
+    <div id="review-panel">
+      <div class="rev-status"><span class="icon">✅</span><span id="rev-status-msg">基础设定已生成，请审查</span></div>
+      <div class="rev-cards" id="rev-cards"><div class="empty">加载中...</div></div>
+      <div class="rev-actions">
+        <button class="btn-approve" onclick="approveReview()">✅ 审查通过，开始写作</button>
+        <button class="btn-skip" onclick="skipReview()">⏭ 跳过审查，直接写作</button>
+      </div>
+    </div>
+    <div id="input-area">
+      <div id="suggestions"></div>
+      <div class="row">
+        <textarea id="user-input" placeholder="输入创作需求，或与 AI 对话...&#10;Ctrl+S 直接开始创作" rows="2"></textarea>
+        <button class="primary" id="btn-send" title="发送">发送</button>
+      </div>
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap">
+        <button id="btn-start" class="primary">▶ 开始创作</button>
+        <button id="btn-pause" class="warn">⏸ 暂停</button>
+        <button id="btn-resume">▶ 恢复</button>
+        <button id="btn-steer" class="danger">↗ 干预</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab2: Files -->
+  <div class="tab" id="tab-files">
+    <div class="breadcrumb" id="files-breadcrumb"><span data-dir="">📁 输出目录</span></div>
+    <div id="files-area"></div>
+  </div>
+
+  <!-- Tab3: Settings -->
+  <div class="tab" id="tab-settings">
+    <div id="settings-area">
+      <div class="section">
+        <h3>创作风格</h3>
+        <div class="option" style="flex-direction:column;align-items:stretch;gap:10px">
+          <div><div class="label">写作风格</div><div class="desc">系统提示词注入的文学风格</div></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="style-select" onchange="switchStyle(this.value)" style="flex:1">
+              <option value="">加载中...</option>
+            </select>
+            <button onclick="editStyle()" title="编辑当前风格" style="height:30px;width:30px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text);font-size:.85rem;cursor:pointer;flex-shrink:0">✏</button>
+            <button onclick="toggleNewStyle()" title="新建风格" style="height:30px;width:30px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text);font-size:1rem;cursor:pointer;flex-shrink:0">+</button>
+          </div>
+          <div id="new-style-row" style="display:none;gap:6px">
+            <input id="new-style-name" placeholder="风格名 (如 mystery)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem">
+            <button onclick="createStyle()" style="height:30px;padding:0 12px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:.8rem;cursor:pointer;flex-shrink:0">创建</button>
+          </div>
+          <div id="style-editor" style="display:none">
+            <textarea id="style-editor-area" style="width:100%;min-height:120px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-family:monospace;font-size:.82rem;resize:vertical;box-sizing:border-box"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+              <button onclick="saveStyle()" style="height:30px;padding:0 14px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:.8rem;cursor:pointer">保存</button>
+              <button onclick="deleteStyle()" style="height:30px;padding:0 14px;border:1px solid var(--error);border-radius:6px;background:transparent;color:var(--error);font-size:.8rem;cursor:pointer">删除</button>
+              <button onclick="closeStyleEditor()" style="height:30px;padding:0 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text);font-size:.8rem;cursor:pointer">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>工作模式</h3>
+        <div class="option">
+          <div><div class="label">审阅模式</div><div class="desc">每阶段完成后暂停等待人工审阅</div></div>
+          <div class="toggle" id="review-toggle" onclick="toggleReview()"></div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>项目规则文件</h3>
+        <div class="option" style="flex-direction:column;align-items:stretch;gap:10px">
+          <div><div class="label">rules.md（项目规则）</div><div class="desc">编辑后保存即可生效，使用 Markdown 格式</div></div>
+          <textarea id="rules-editor" style="min-height:120px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-family:monospace;font-size:.82rem;resize:vertical;"></textarea>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="loadRulesFile('project')" style="height:32px;padding:0 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text);font-size:.8rem;cursor:pointer;">加载</button>
+            <button onclick="saveRulesFile('project')" class="primary" style="height:32px;padding:0 12px;font-size:.8rem;">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>全局规则管理</h3>
+        <div id="global-rules-list" style="margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px">
+          <input id="new-global-name" placeholder="新文件名 (如 my-style.md)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:.82rem;">
+          <button onclick="createGlobalRule()" style="height:32px;padding:0 12px;border:1px solid var(--border);border-radius:6px;background:var(--success);color:#000;font-size:.8rem;cursor:pointer;">+ 新建</button>
+        </div>
+        <div id="global-rules-editor" style="display:none;margin-top:10px">
+          <div id="global-editor-title" style="font-size:.82rem;color:var(--accent);margin-bottom:6px;"></div>
+          <textarea id="global-editor-area" style="width:100%;min-height:100px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-family:monospace;font-size:.82rem;resize:vertical;"></textarea>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+            <button onclick="closeGlobalEditor()" style="height:32px;padding:0 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);color:var(--text);font-size:.8rem;cursor:pointer;">取消</button>
+            <button onclick="saveGlobalRule()" class="primary" style="height:32px;padding:0 12px;font-size:.8rem;">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>运行状态</h3>
+        <div id="status-info"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Review Editor Overlay -->
+<div id="rev-editor-overlay">
+  <div class="rev-editor-top">
+    <span class="filename" id="rev-editor-filename"></span>
+    <button class="save-btn" id="rev-editor-save-btn" onclick="saveReviewFile()">💾 保存</button>
+    <button onclick="closeReviewEditor()">← 返回</button>
+  </div>
+  <div class="rev-editor-content" id="rev-editor-content"></div>
+</div>
+
+<!-- Fullscreen file reader -->
+<div id="reader-overlay">
+  <div class="reader-top">
+    <span class="filename" id="reader-filename"></span>
+    <button onclick="closeReader()">✕ 关闭</button>
+  </div>
+  <div class="reader-content" id="reader-content"></div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── State ──
+const STATE = {
+  runtime: 'idle', phase: '', novelName: '', completed: 0, wordCount: 0,
+  style: '', reviewMode: false,
+  currentDir: '', // file browser
+  chatHistory: [], // co-create messages
+  isCoCreate: false,
+};
+
+// ── DOM refs ──
+const $ = id => document.getElementById(id);
+const streamArea = $('stream-area');
+const userInput = $('user-input');
+const suggestionsBox = $('suggestions');
+const filesArea = $('files-area');
+const filesBread = $('files-breadcrumb');
+const readerOverlay = $('reader-overlay');
+const readerContent = $('reader-content');
+const readerFilename = $('reader-filename');
+const toastEl = $('toast');
+const stateDot = $('state-dot');
+const reviewPanel = $('review-panel');
+const revCards = $('rev-cards');
+const revStatusMsg = $('rev-status-msg');
+const revEditorOverlay = $('rev-editor-overlay');
+const revEditorFilename = $('rev-editor-filename');
+const revEditorContent = $('rev-editor-content');
+const revEditorSaveBtn = $('rev-editor-save-btn');
+let revEditingPath = '';
+
+// ── Toast ──
+let toastTimer;
+function toast(msg, cls='') {
+  toastEl.textContent = msg;
+  toastEl.className = cls;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
+}
+
+// ── Tab switching ──
+document.querySelectorAll('#tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const name = btn.dataset.tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    $('tab-' + name).classList.add('active');
+    if (name === 'files') loadFiles();
+    if (name === 'settings') refreshSettings();
+  });
+});
+
+// ── Top bar update ──
+function updateTopBar(snap) {
+  if (!snap) return;
+  STATE.runtime = snap.RuntimeState || 'idle';
+  STATE.phase = snap.Phase || '';
+  STATE.novelName = snap.NovelName || '';
+  STATE.completed = snap.CompletedCount || 0;
+  STATE.wordCount = snap.TotalWordCount || 0;
+  STATE.style = snap.Style || '';
+
+  $('book-title').textContent = STATE.novelName ? '📖 ' + STATE.novelName : 'AINovel · ' + (STATE.phase || '待机');
+  $('progress-text').textContent =
+    (STATE.runtime === 'running' ? '⚡' : '💤') + ' ' +
+    STATE.phase + (STATE.completed ? ' · Ch.' + STATE.completed : '') +
+    (STATE.wordCount ? ' · ' + STATE.wordCount.toLocaleString() + '字' : '');
+
+  stateDot.className = 'dot' + (STATE.runtime === 'running' ? ' running' : '');
+
+  // Toggle review panel based on phase
+  toggleReviewPanel();
+}
+
+// ── Stream output ──
+function appendLine(cls, text) {
+  const div = document.createElement('div');
+  div.className = 'line ' + (cls || '');
+  div.textContent = text;
+  streamArea.appendChild(div);
+  streamArea.scrollTop = streamArea.scrollHeight;
+}
+
+function flushStreamLine() {
+  if (streamLine) {
+    appendLine('ev-stream', streamLine);
+    streamLine = '';
+  }
+}
+
+function appendBubble(role, text, draft) {
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = role === 'user' ? '你' : 'AI';
+  div.appendChild(label);
+  const content = document.createElement('div');
+  content.textContent = text;
+  div.appendChild(content);
+  if (draft) {
+    const draftDiv = document.createElement('div');
+    draftDiv.className = 'draft';
+    draftDiv.textContent = draft;
+    div.appendChild(draftDiv);
+  }
+  streamArea.appendChild(div);
+  streamArea.scrollTop = streamArea.scrollHeight;
+}
+
+// ── SSE ──
+let es;
+let streamLine = '';
+function connectSSE() {
+  if (es) es.close();
+  es = new EventSource('/api/stream');
+  es.addEventListener('status', e => {
+    try {
+      const s = JSON.parse(e.data);
+      updateTopBar(s);
+    } catch(_) {}
+  });
+  es.addEventListener('event', e => {
+    try {
+      const ev = JSON.parse(e.data);
+      appendLine('ev-' + (ev.Level || 'info'), '[' + (ev.Category || '?') + '] ' + (ev.Summary || ''));
+    } catch(_) {}
+  });
+  es.addEventListener('clear', () => { flushStreamLine(); appendLine('clear', '── 新一轮 ──'); });
+  es.addEventListener('done', () => { flushStreamLine(); appendLine('ev-system', '══ 创作结束 ══'); });
+  es.onmessage = e => {
+    try {
+      const t = JSON.parse(e.data);
+      if (typeof t === 'string') streamLine += t;
+    } catch(_) {
+      streamLine += e.data;
+    }
+    // flush complete lines
+    let idx;
+    while ((idx = streamLine.indexOf('\n')) >= 0) {
+      appendLine('ev-stream', streamLine.slice(0, idx));
+      streamLine = streamLine.slice(idx + 1);
+    }
+  };
+  es.onerror = () => {
+    // SSE will auto-reconnect; just update status
+    flushStreamLine();
+    appendLine('ev-system', '⚠ SSE 连接中断，正在重连...');
+  };
+}
+// Init — 先获取当前状态再连接 SSE
+fetch('/api/status')
+  .then(r => r.json())
+  .then(snap => {
+    updateTopBar(snap);
+    toggleReviewPanel();
+  })
+  .catch(() => {})
+  .finally(() => { connectSSE(); loadProjects(); });
+
+// ── API helpers ──
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+async function apiRaw(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'text/plain'} };
+  if (body !== undefined) opts.body = body;
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+// ── Actions ──
+async function startCreation() {
+  const prompt = userInput.value.trim();
+  if (!prompt) { toast('请先输入创作需求','error'); return; }
+  try {
+    await api('POST', '/api/start', {prompt});
+    toast('创作已启动');
+    userInput.value = '';
+    clearSuggestions();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function pauseCreation() {
+  try {
+    const r = await api('POST', '/api/pause');
+    toast(r.stopped ? '已暂停' : '无运行中的任务');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function resumeCreation() {
+  try {
+    const r = await api('POST', '/api/resume');
+    toast(r.label ? '已恢复: ' + r.label : (r.message || '已恢复'));
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function steerCreation() {
+  const text = userInput.value.trim();
+  if (!text) { toast('请输入干预内容','error'); return; }
+  try {
+    await api('POST', '/api/steer', {text});
+    toast('已注入干预');
+    userInput.value = '';
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function sendContinue() {
+  const text = userInput.value.trim();
+  if (!text) return;
+  try {
+    await api('POST', '/api/continue', {text});
+    userInput.value = '';
+    clearSuggestions();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Co-Create ──
+function clearSuggestions() { suggestionsBox.innerHTML = ''; }
+
+async function sendCoCreate() {
+  const text = userInput.value.trim();
+  if (!text) return;
+  const history = STATE.chatHistory;
+  history.push({role:'user', content:text});
+  appendBubble('user', text);
+  userInput.value = '';
+  clearSuggestions();
+
+  try {
+    const data = await api('POST', '/api/cocreate', {history});
+
+    // Add AI response to history (use full raw for context)
+    history.push({role:'assistant', content: data.Raw || data.Message});
+    STATE.chatHistory = history;
+
+    // Show AI message
+    let aiText = data.Message || '';
+    if (data.Prompt) {
+      appendBubble('ai', aiText, data.Prompt);
+    } else {
+      appendBubble('ai', aiText);
+    }
+
+    // Show suggestions as chips
+    if (data.Suggestions && data.Suggestions.length > 0) {
+      data.Suggestions.forEach(s => {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.textContent = s;
+        chip.onclick = () => { userInput.value = s; userInput.focus(); };
+        suggestionsBox.appendChild(chip);
+      });
+    }
+
+    // If ready, show start hint
+    if (data.Ready) {
+      appendLine('ev-success', '✅ 需求已明确，可以直接开始创作');
+      const startChip = document.createElement('span');
+      startChip.className = 'chip';
+      startChip.textContent = '开始创作这个故事';
+      startChip.style.background = 'var(--accent)';
+      startChip.style.color = '#fff';
+      startChip.onclick = async () => {
+        const prompt = data.Prompt || history.filter(h=>h.role==='user').map(h=>h.content).join('\n');
+        await api('POST','/api/start',{prompt});
+        toast('创作已启动');
+        clearSuggestions();
+        STATE.chatHistory = [];
+      };
+      suggestionsBox.appendChild(startChip);
+    }
+  } catch(e) {
+    appendLine('ev-error', '共创失败: ' + e.message);
+  }
+}
+
+async function sendMessage() {
+  const text = userInput.value.trim();
+  if (!text) return;
+
+  if (STATE.isCoCreate || STATE.runtime === 'idle') {
+    STATE.isCoCreate = true;
+    await sendCoCreate();
+  } else {
+    await sendContinue();
+  }
+}
+
+// ── Button bindings ──
+$('btn-send').addEventListener('click', sendMessage);
+$('btn-start').addEventListener('click', startCreation);
+$('btn-pause').addEventListener('click', pauseCreation);
+$('btn-resume').addEventListener('click', resumeCreation);
+$('btn-steer').addEventListener('click', steerCreation);
+
+userInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// ── Project Switcher ──
+async function loadProjects() {
+  const sel = $('project-select');
+  if (!sel) return;
+  try {
+    const projects = await api('GET', '/api/projects');
+    sel.innerHTML = projects.map(p =>
+      '<option value="' + p.name + '">' + p.name + '</option>'
+    ).join('');
+  } catch(e) {
+    sel.innerHTML = '<option value="">加载失败</option>';
+  }
+}
+
+async function switchProject(name) {
+  if (!name) return;
+  if (!confirm('切换到项目 ' + name + '？当前未保存内容可能丢失。')) return;
+  try {
+    await api('POST', '/api/projects/' + encodeURIComponent(name));
+    toast('已切换到: ' + name);
+    location.reload();
+  } catch(e) {
+    toast('切换失败: ' + e.message, 'error');
+  }
+}
+
+// ── File Browser ──
+async function loadFiles() {
+  filesArea.innerHTML = '<div class="empty"><span class="spin"></span> 加载中...</div>';
+  filesBread.innerHTML = '📁 输出目录';
+
+  try {
+    const data = await api('GET', '/api/files');
+
+    if (!data || !data.children || data.children.length === 0) {
+      filesArea.innerHTML = '<div class="empty">📭 输出目录为空（尚无创作产物）</div>';
+      return;
+    }
+
+    filesArea.innerHTML = '';
+    renderTree(data.children, filesArea, '');
+  } catch(e) {
+    filesArea.innerHTML = '<div class="empty">❌ 加载失败: ' + e.message + '</div>';
+  }
+}
+
+// ── Recursive tree rendering ──
+function renderTree(nodes, parent, basePath) {
+  nodes.forEach(node => {
+    const el = document.createElement('div');
+    const isDir = node.type === 'dir';
+    const path = basePath ? basePath + '/' + node.name : node.name;
+    const icon = isDir ? '📁' : (node.name.endsWith('.md') ? '📝' : '📊');
+    const sizeStr = node.size ? formatSize(node.size) : '';
+    const indent = (basePath.match(/\//g) || []).length * 16;
+
+    el.className = 'node ' + (isDir ? 'dir' : 'file');
+    el.style.paddingLeft = (16 + indent) + 'px';
+    el.innerHTML = '<span class="icon">' + icon + '</span><span class="name">' + node.name + '</span><span class="size">' + sizeStr + '</span>';
+
+    if (isDir) {
+      // Expandable directory
+      let expanded = false;
+      let childContainer = null;
+      el.addEventListener('click', () => {
+        if (!expanded) {
+          childContainer = document.createElement('div');
+          if (node.children && node.children.length > 0) {
+            renderTree(node.children, childContainer, path);
+          } else {
+            childContainer.innerHTML = '<div class="empty" style="padding-left:' + (16 + indent + 16) + 'px">空目录</div>';
+          }
+          el.parentNode.insertBefore(childContainer, el.nextSibling);
+          el.querySelector('.icon').textContent = '📂';
+          expanded = true;
+        } else {
+          if (childContainer) {
+            childContainer.remove();
+            childContainer = null;
+          }
+          el.querySelector('.icon').textContent = '📁';
+          expanded = false;
+        }
+      });
+    } else {
+      // File — click to open reader
+      el.addEventListener('click', () => openReader(path));
+    }
+    parent.appendChild(el);
+  });
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// ── File Reader ──
+async function openReader(path) {
+  readerOverlay.classList.add('open');
+  readerFilename.textContent = path;
+  readerContent.innerHTML = '<div style="text-align:center;padding:40px"><span class="spin"></span> 加载中...</div>';
+
+  try {
+    const data = await api('GET', '/api/files/' + encodeURIComponent(path));
+
+    if (data.type === 'json') {
+      readerContent.className = 'reader-content json';
+      let content = data.content;
+      try {
+        // Try to parse as JSON for syntax highlighting
+        const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+        readerContent.innerHTML = syntaxHighlightJSON(parsed);
+      } catch(_) {
+        readerContent.textContent = content;
+      }
+    } else {
+      readerContent.className = 'reader-content';
+      readerContent.textContent = data.content;
+    }
+  } catch(e) {
+    readerContent.className = 'reader-content';
+    readerContent.textContent = '读取失败: ' + e.message;
+  }
+}
+
+function closeReader() {
+  readerOverlay.classList.remove('open');
+  readerContent.className = 'reader-content';
+  readerContent.innerHTML = '';
+}
+
+// ── Review Panel ──
+function toggleReviewPanel() {
+  const isReview = STATE.phase === 'review' || STATE.phase === 'Review' || STATE.phase === 'chapter_review';
+  const streamArea = $('stream-area');
+  const inputArea = $('input-area');
+
+  if (isReview) {
+    reviewPanel.classList.add('show');
+    streamArea.style.display = 'none';
+    // Hide input during review
+    if (inputArea) inputArea.style.display = 'none';
+    loadReviewFiles();
+  } else {
+    reviewPanel.classList.remove('show');
+    streamArea.style.display = '';
+    if (inputArea) inputArea.style.display = '';
+  }
+}
+
+async function loadReviewFiles() {
+  revCards.innerHTML = '<div class="empty"><span class="spin"></span> 加载审查文件...</div>';
+  try {
+    const data = await fetch('/api/review-files').then(r => r.json());
+    const files = data.files || [];
+
+    if (files.length === 0) {
+      revCards.innerHTML = '<div class="empty">📭 暂无基础设定文件</div>';
+      return;
+    }
+
+    revCards.innerHTML = '';
+    files.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'rev-card';
+
+      const top = document.createElement('div');
+      top.className = 'rev-card-top';
+      top.innerHTML =
+        '<span class="name"><span class="dot">📄</span>' + escapeHtml(f.name) + '</span>' +
+        '<button class="edit-btn" data-path="' + escapeHtml(f.path) + '">✏编辑</button>';
+      card.appendChild(top);
+
+      const preview = document.createElement('div');
+      preview.className = 'rev-card-preview';
+      preview.textContent = f.preview || '(空文件)';
+      card.appendChild(preview);
+
+      revCards.appendChild(card);
+    });
+
+    // Bind edit buttons
+    revCards.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openReviewEditor(btn.dataset.path);
+      });
+    });
+  } catch(e) {
+    revCards.innerHTML = '<div class="empty">❌ 加载失败: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function openReviewEditor(path) {
+  revEditingPath = path;
+  revEditorOverlay.classList.add('open');
+  revEditorFilename.textContent = path;
+  revEditorContent.innerHTML = '<div style="text-align:center;padding:40px"><span class="spin"></span> 加载中...</div>';
+
+  try {
+    const data = await api('GET', '/api/review-files/' + encodeURIComponent(path));
+
+    if (data.type === 'json') {
+      // JSON files: read-only preview with syntax highlighting
+      revEditorSaveBtn.style.display = 'none';
+      revEditorContent.innerHTML = '';
+      const previewDiv = document.createElement('div');
+      previewDiv.className = 'readonly-preview json-preview';
+      try {
+        const parsed = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+        previewDiv.innerHTML = syntaxHighlightJSON(parsed);
+      } catch(_) {
+        previewDiv.textContent = data.content;
+      }
+      revEditorContent.appendChild(previewDiv);
+    } else {
+      // .md files: editable textarea
+      revEditorSaveBtn.style.display = '';
+      revEditorContent.innerHTML = '';
+      const ta = document.createElement('textarea');
+      ta.value = data.content;
+      ta.setAttribute('spellcheck', 'false');
+      revEditorContent.appendChild(ta);
+      ta.focus();
+    }
+  } catch(e) {
+    revEditorContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--error)">读取失败: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function saveReviewFile() {
+  if (!revEditingPath) return;
+  const ta = revEditorContent.querySelector('textarea');
+  if (!ta) { toast('无法保存：当前为只读模式', 'error'); return; }
+
+  const content = ta.value;
+  try {
+    await apiRaw('POST', '/api/review-files/' + encodeURIComponent(revEditingPath), content);
+    toast('已保存: ' + revEditingPath);
+    closeReviewEditor();
+    // Refresh file cards
+    loadReviewFiles();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+function closeReviewEditor() {
+  revEditorOverlay.classList.remove('open');
+  revEditorContent.innerHTML = '';
+  revEditingPath = '';
+}
+
+async function approveReview() {
+  try {
+    const url = STATE.phase === 'chapter_review' ? '/api/chapter-review/approve' : '/api/review/approve';
+    await api('POST', url);
+    toast('审查通过，继续创作');
+    toggleReviewPanel();
+  } catch(e) {
+    toast('操作失败: ' + e.message, 'error');
+  }
+}
+
+async function skipReview() {
+  try {
+    const url = STATE.phase === 'chapter_review' ? '/api/chapter-review/skip' : '/api/review/skip';
+    await api('POST', url);
+    toast('已跳过审查，继续创作');
+    toggleReviewPanel();
+  } catch(e) {
+    toast('操作失败: ' + e.message, 'error');
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function syntaxHighlightJSON(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  return json
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/("(\\u[a-fA-F0-9]{4}|\\[^u]|[^"\\])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+      let cls = 'number';
+      if (/^"/.test(m)) {
+        if (/:$/.test(m)) { cls = 'key'; m = m.slice(0,-1) + '</span>:'; return '<span class="' + cls + '">' + m; }
+        else cls = 'string';
+      } else if (/true|false/.test(m)) cls = 'boolean';
+      else if (/null/.test(m)) cls = 'null';
+      return '<span class="' + cls + '">' + m + '</span>';
+    });
+}
+
+// ── Settings ──
+function refreshSettings() {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(snap => {
+      updateTopBar(snap);
+
+      // Style selector - dynamic load
+      const sel = $('style-select');
+      fetch('/api/styles')
+        .then(r => r.json())
+        .then(styles => {
+          sel.innerHTML = styles.map(s =>
+            '<option value="' + s.name + '"' + (s.is_active ? ' selected' : '') + '>' + s.label + '</option>'
+          ).join('');
+        })
+        .catch(() => {
+          // fallback if API not available
+        });
+
+      // Review toggle
+      const toggle = $('review-toggle');
+      toggle.className = 'toggle' + (STATE.reviewMode ? ' on' : '');
+
+      // Status info
+      $('status-info').innerHTML =
+        '<div class="info-row"><span class="k">提供者</span><span class="v">' + (snap.Provider || '—') + '</span></div>' +
+        '<div class="info-row"><span class="k">模型</span><span class="v">' + (snap.ModelName || '—') + '</span></div>' +
+        '<div class="info-row"><span class="k">运行状态</span><span class="v">' + STATE.runtime + '</span></div>' +
+        '<div class="info-row"><span class="k">阶段</span><span class="v">' + (STATE.phase || '—') + '</span></div>' +
+        '<div class="info-row"><span class="k">已完成</span><span class="v">' + STATE.completed + ' 章</span></div>' +
+        '<div class="info-row"><span class="k">总字数</span><span class="v">' + STATE.wordCount.toLocaleString() + '</span></div>';
+
+      // Load global rules list
+      loadGlobalRulesList();
+    })
+    .catch(e => {
+      $('status-info').innerHTML = '<div class="empty">⚠ 无法获取状态: ' + e.message + '</div>';
+    });
+}
+
+// ── Style Switching ──
+async function switchStyle(style) {
+  try {
+    const r = await api('POST', '/api/style/current', {style});
+    toast('风格已切换为: ' + style);
+  } catch(e) {
+    toast('切换失败: ' + e.message, 'error');
+    // Revert selector
+    const sel = $('style-select');
+    const snapStyle = STATE.style || 'default';
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === snapStyle) {
+        sel.selectedIndex = i;
+        break;
+      }
+    }
+  }
+}
+
+// ── Style CRUD ──
+let editingStyleName = null;
+
+function toggleNewStyle() {
+  const row = $('new-style-row');
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+  if (row.style.display === 'flex') $('new-style-name').focus();
+}
+
+async function createStyle() {
+  const name = $('new-style-name').value.trim();
+  if (!name) { toast('请输入风格名称', 'error'); return; }
+  editingStyleName = name;
+  $('style-editor').style.display = 'block';
+  $('style-editor-area').value = '# 写作风格: ' + name + '\n\n在此定义你的写作风格提示词...\n';
+  $('style-editor-area').focus();
+  $('new-style-row').style.display = 'none';
+  $('new-style-name').value = '';
+}
+
+async function editStyle() {
+  const sel = $('style-select');
+  const name = sel.value;
+  if (!name) { toast('请先选择风格', 'error'); return; }
+  try {
+    const data = await api('GET', '/api/styles/' + encodeURIComponent(name));
+    editingStyleName = name;
+    $('style-editor').style.display = 'block';
+    $('style-editor-area').value = data.content || '';
+  } catch(e) { toast('加载失败: ' + e.message, 'error'); }
+}
+
+async function saveStyle() {
+  const content = $('style-editor-area').value;
+  try {
+    await apiRaw('PUT', '/api/styles/' + encodeURIComponent(editingStyleName), content);
+    toast('已保存: ' + editingStyleName);
+    closeStyleEditor();
+    refreshSettings();
+  } catch(e) { toast('保存失败: ' + e.message, 'error'); }
+}
+
+async function deleteStyle() {
+  if (!confirm('确定删除风格 ' + editingStyleName + '？')) return;
+  try {
+    await api('DELETE', '/api/styles/' + encodeURIComponent(editingStyleName));
+    toast('已删除: ' + editingStyleName);
+    closeStyleEditor();
+    refreshSettings();
+  } catch(e) { toast('删除失败: ' + e.message, 'error'); }
+}
+
+function closeStyleEditor() {
+  $('style-editor').style.display = 'none';
+  editingStyleName = null;
+}
+
+function toggleReview() {
+  STATE.reviewMode = !STATE.reviewMode;
+  $('review-toggle').className = 'toggle' + (STATE.reviewMode ? ' on' : '');
+  toast(STATE.reviewMode ? '审阅模式: 开' : '审阅模式: 关');
+}
+
+// ── Project Rules Editor ──
+async function loadRulesFile(source, name) {
+  let url = '/api/rules/file?source=' + source;
+  if (name) url += '&name=' + encodeURIComponent(name);
+
+  try {
+    const data = await (await fetch(url)).json();
+
+    if (source === 'project') {
+      $('rules-editor').value = data.content || '';
+      if (!data.exists) toast('rules.md 不存在，保存后将自动创建');
+    } else {
+      // Global rule being edited
+      $('global-editor-area').value = data.content || '';
+      $('global-editor-title').textContent = '编辑: ' + data.name;
+      $('global-rules-editor').style.display = 'block';
+      window._editingGlobalRule = data.name;
+    }
+  } catch(e) {
+    toast('加载失败: ' + e.message, 'error');
+  }
+}
+
+async function saveRulesFile(source, name) {
+  let url = '/api/rules/file?source=' + source;
+  if (name) url += '&name=' + encodeURIComponent(name);
+
+  let content;
+  if (source === 'project') {
+    content = $('rules-editor').value;
+  } else {
+    content = $('global-editor-area').value;
+  }
+
+  try {
+    await (await fetch(url, {
+      method: 'POST',
+      body: content,
+    })).json();
+    toast(source === 'project' ? '项目规则已保存' : '已保存: ' + name);
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+// ── Global Rules Management ──
+async function loadGlobalRulesList() {
+  try {
+    const sources = await (await fetch('/api/rules/sources')).json();
+    const globalFiles = sources.filter(s => s.kind === 'global');
+
+    const list = $('global-rules-list');
+    if (globalFiles.length === 0) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:.82rem;padding:8px 0">暂无全局规则文件</div>';
+      return;
+    }
+
+    list.innerHTML = globalFiles.map(f => {
+      const name = f.source.split('/').pop();
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">' +
+        '<span style="font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">📝 ' + name + '</span>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0">' +
+        '<button onclick="editGlobalRule(\'' + name + '\')" style="height:28px;padding:0 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text);font-size:.75rem;cursor:pointer;">编辑</button>' +
+        '<button onclick="deleteGlobalRule(\'' + name + '\')" style="height:28px;padding:0 10px;border:1px solid var(--border);border-radius:4px;background:var(--error);color:#fff;font-size:.75rem;cursor:pointer;">删除</button>' +
+        '</div></div>';
+    }).join('');
+  } catch(e) {
+    $('global-rules-list').innerHTML = '<div style="color:var(--error);font-size:.82rem">加载失败: ' + e.message + '</div>';
+  }
+}
+
+function editGlobalRule(name) {
+  loadRulesFile('global', name);
+}
+
+async function saveGlobalRule() {
+  const name = window._editingGlobalRule;
+  if (!name) return;
+  await saveRulesFile('global', name);
+  closeGlobalEditor();
+  loadGlobalRulesList();
+}
+
+function closeGlobalEditor() {
+  $('global-rules-editor').style.display = 'none';
+  $('global-editor-area').value = '';
+  window._editingGlobalRule = null;
+}
+
+async function createGlobalRule() {
+  const name = $('new-global-name').value.trim();
+  if (!name) { toast('请输入文件名', 'error'); return; }
+  if (!name.endsWith('.md')) {
+    toast('文件名必须以 .md 结尾', 'error');
+    return;
+  }
+  // basic safety check
+  if (name.includes('/') || name.startsWith('.')) {
+    toast('无效的文件名', 'error');
+    return;
+  }
+
+  try {
+    await (await fetch('/api/rules/file?source=global&name=' + encodeURIComponent(name), {
+      method: 'POST',
+      body: '# ' + name.replace('.md', '') + '\n\n（在此编辑你的全局规则）\n',
+    })).json();
+    $('new-global-name').value = '';
+    toast('已创建: ' + name);
+    loadGlobalRulesList();
+    editGlobalRule(name);
+  } catch(e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+}
+
+async function deleteGlobalRule(name) {
+  if (!confirm('确定删除 ' + name + ' ？')) return;
+
+  try {
+    await (await fetch('/api/rules/file?source=global&name=' + encodeURIComponent(name), {
+      method: 'DELETE',
+    })).json();
+    toast('已删除: ' + name);
+    loadGlobalRulesList();
+    if (window._editingGlobalRule === name) closeGlobalEditor();
+  } catch(e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+</script>
+</body>
+</html>

@@ -63,7 +63,7 @@ func BuildCoordinator(
 
 	architectTools := []agentcore.Tool{
 		contextTool,
-		tools.NewSaveFoundationTool(store),
+		tools.NewSaveFoundationTool(store, cfg.ReviewEnabled),
 	}
 	writerTools := []agentcore.Tool{
 		contextTool,
