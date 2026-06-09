@@ -1,8 +1,44 @@
 // ═══ AINovel Web Terminal ═══
-// 薄渲染层：SSE 事件流 + 斜杠命令转发。所有业务逻辑由 host.Host 承载。
-
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
+const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+// ── Persistence ──
+const PERSIST_KEY = () => 'ainovel_terminal_' + (currentProject || '_default');
+let currentProject = '';
+let streamHTML = '';
+let eventEntries = [];
+
+function saveState() {
+  try {
+    localStorage.setItem(PERSIST_KEY(), JSON.stringify({
+      stream: streamContent.innerHTML,
+      events: eventEntries,
+      streamBuf,
+    }));
+  } catch {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY());
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.stream) {
+      streamContent.innerHTML = data.stream;
+      streamContent.classList.remove('empty-hint');
+    }
+    if (data.events) {
+      data.events.forEach(e => addEvent(e.cat, e.summary, e.level, true));
+    }
+    if (data.streamBuf) streamBuf = data.streamBuf;
+    return !!data.stream;
+  } catch { return false; }
+}
+
+function clearState() {
+  try { localStorage.removeItem(PERSIST_KEY()); } catch {}
+}
 
 // ── API ──
 async function api(method, path, body) {
@@ -22,8 +58,7 @@ $$('.tab').forEach(btn => {
     $$('.tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     $$('.panel').forEach(p => p.classList.remove('active'));
-    const id = 'panel-' + btn.dataset.tab;
-    const panel = $(id);
+    const panel = $('#panel-' + btn.dataset.tab);
     if (panel) panel.classList.add('active');
     if (btn.dataset.tab === 'files') loadFiles();
     if (btn.dataset.tab === 'settings') loadSettings();
@@ -47,11 +82,19 @@ let streamBuf = '';
 let eventN = 0;
 let cmdHistory = [];
 let cmdIdx = -1;
+let lastStatus = null;
 
 // ── SSE ──
 function connectSSE() {
   if (es) es.close();
   es = new EventSource('/api/stream');
+
+  es.addEventListener('status', e => {
+    try {
+      lastStatus = JSON.parse(e.data);
+      applyStatus(lastStatus);
+    } catch {}
+  });
 
   es.addEventListener('event', e => {
     const d = JSON.parse(e.data);
@@ -73,6 +116,26 @@ function connectSSE() {
 
   es.addEventListener('clear', endRound);
   es.addEventListener('done', () => { endRound(); setPhase('idle'); });
+  es.onerror = () => {};
+}
+
+function applyStatus(s) {
+  const name = s.novelName || s.NovelName;
+  if (name) {
+    currentProject = name;
+    topbarTitle.textContent = name;
+    topbarSubtitle.textContent = s.bookTitle || s.BookTitle || '';
+  }
+  const ch = s.chapter || s.CurrentChapter;
+  if (ch) {
+    const prog = $('#status-progress');
+    if (prog) prog.textContent = `第${ch}章·${s.wordCount||s.TotalWordCount||0}字`;
+  }
+  const running = s.running || s.IsRunning;
+  const phase = s.phase || s.Phase;
+  if (running) setPhase('writing');
+  else if (phase === 'Review') setPhase('review');
+  else setPhase('idle');
 }
 
 // ── Stream ──
@@ -89,13 +152,14 @@ function appendStream(text) {
   }
   streamBuf += text;
   scrollStream();
+  debouncedSave();
 }
 
 function appendThink(text) {
   clearEmptyHint();
   const d = document.createElement('details');
   d.className = 'think-block';
-  d.innerHTML = `<summary>💭 思考 (${text.length}字)</summary><div class="think-content">${esc(text)}</div>`;
+  d.innerHTML = `<summary>💭 思考(${text.length}字)</summary><div class="think-content">${esc(text)}</div>`;
   streamContent.appendChild(d);
   scrollStream();
 }
@@ -108,6 +172,7 @@ function endRound() {
     sep.className = 'round-sep';
     streamContent.appendChild(sep);
     streamBuf = '';
+    saveState();
   }
 }
 
@@ -125,8 +190,14 @@ function scrollStream() {
   });
 }
 
+let _saveTimer = null;
+function debouncedSave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveState, 2000);
+}
+
 // ── Events ──
-function addEvent(cat, summary, level) {
+function addEvent(cat, summary, level, skipSave) {
   eventN++;
   eventCount.textContent = `(${eventN})`;
   const entry = document.createElement('details');
@@ -135,33 +206,31 @@ function addEvent(cat, summary, level) {
   entry.innerHTML = `<summary><span class="ev-cat">[${cat}]</span><span class="ev-time">${t}</span>${esc(summary)}</summary>`;
   eventLog.appendChild(entry);
   eventLog.scrollTop = eventLog.scrollHeight;
+  if (!skipSave) {
+    eventEntries.push({ cat, summary, level });
+    debouncedSave();
+  }
 }
 
 // ── Phase ──
-let curPhase = 'idle';
 function setPhase(phase) {
-  curPhase = phase;
   const m = {
-    idle:    ['待命',     'idle',   '● 待命'],
-    writing: ['写作中…',  'writing', '◉ 写作中'],
-    review:  ['审查中',   'review',  '◎ 审查中'],
-    paused:  ['已暂停',   'idle',    '◌ 暂停'],
+    idle:    ['待命',   'idle',   '● 待命'],
+    writing: ['写作中…','writing','◉ 写作中'],
+    review:  ['审查中', 'review', '◎ 审查中 · /feedback 或 /approve'],
+    paused:  ['已暂停', 'idle',   '◌ 暂停'],
   };
   const [text, cls, badge] = m[phase] || m.idle;
   topbarStatus.textContent = badge;
   topbarStatus.className = 'badge ' + cls;
-  // highlight review quick-btn
   $$('.qbtn').forEach(b => b.classList.toggle('review-mode', phase === 'review'));
 }
 
 async function updateTopbar() {
   try {
     const s = await api('GET', '/api/status');
-    topbarTitle.textContent = s.novelName || 'AINovel';
-    topbarSubtitle.textContent = s.bookTitle || '';
-    if (s.phase === 'Review') setPhase('review');
-    else if (s.running) setPhase('writing');
-    else setPhase('idle');
+    applyStatus(s);
+    return s;
   } catch {}
 }
 
@@ -174,9 +243,8 @@ $$('.qbtn').forEach(btn => {
     const raw = btn.dataset.cmd;
     if (!raw) return;
     if (raw === '/help') { showHelp(); return; }
-    if (raw === '/resume' || raw === '/approve' || raw === '/skip' || raw === '/pause') {
-      execCmd(raw);
-    }
+    if (raw === '/projects') { execCmd('/projects'); return; }
+    execCmd(raw);
   });
 });
 
@@ -196,6 +264,10 @@ const COMMANDS = [
   { cmd: '/approve', args: '',       desc: '审查通过' },
   { cmd: '/skip',    args: '',       desc: '跳过审查' },
   { cmd: '/steer',   args: '<指令>', desc: '中途干预' },
+  { cmd: '/projects',args: '',       desc: '查看项目列表' },
+  { cmd: '/new',     args: '<名称>', desc: '新建项目' },
+  { cmd: '/switch',  args: '<名称>', desc: '切换项目' },
+  { cmd: '/delete',  args: '<名称>', desc: '删除项目' },
   { cmd: '/status',  args: '',       desc: '刷新状态' },
   { cmd: '/help',    args: '',       desc: '帮助' },
 ];
@@ -255,6 +327,7 @@ async function execCmd(raw) {
     switch (cmd) {
       case '/start':
         if (!args) { addEvent('ERR', '用法: /start <创意描述>', 'error'); return; }
+        clearState();
         setPhase('writing');
         await api('POST', '/api/start', { prompt: args });
         break;
@@ -269,7 +342,7 @@ async function execCmd(raw) {
       case '/feedback':
         if (!args) { addEvent('ERR', '用法: /feedback <修改意见>', 'error'); return; }
         setPhase('writing');
-        await api('POST', '/api/review/feedback', { feedback: args, project: '' });
+        await api('POST', '/api/review/feedback', { feedback: args, project: currentProject });
         break;
       case '/approve':
         await api('POST', '/api/review/approve');
@@ -282,6 +355,33 @@ async function execCmd(raw) {
       case '/steer':
         if (!args) { addEvent('ERR', '用法: /steer <指令>', 'error'); return; }
         await api('POST', '/api/steer', { text: args });
+        break;
+      case '/projects':
+        await showProjects();
+        break;
+      case '/new':
+        if (!args) { addEvent('ERR', '用法: /new <项目名>', 'error'); return; }
+        await api('POST', '/api/projects', { name: args });
+        addEvent('OK', `项目「${args}」已创建`, 'info');
+        await updateTopbar();
+        break;
+      case '/switch':
+        if (!args) { addEvent('ERR', '用法: /switch <项目名>', 'error'); return; }
+        await api('POST', '/api/projects/' + encodeURIComponent(args));
+        clearState();
+        addEvent('OK', `已切换到「${args}」`, 'info');
+        streamContent.innerHTML = '<div class="empty-hint"><div class="welcome-icon">✍</div><div>已切换项目<br>/resume 恢复进度</div></div>';
+        eventLog.innerHTML = '';
+        eventEntries = [];
+        eventN = 0;
+        eventCount.textContent = '';
+        await updateTopbar();
+        break;
+      case '/delete':
+        if (!args) { addEvent('ERR', '用法: /delete <项目名>', 'error'); return; }
+        await api('DELETE', '/api/projects/' + encodeURIComponent(args));
+        addEvent('OK', `项目「${args}」已删除`, 'info');
+        await updateTopbar();
         break;
       case '/status':
         await updateTopbar();
@@ -298,6 +398,25 @@ async function execCmd(raw) {
   }
 }
 
+async function showProjects() {
+  try {
+    const d = await api('GET', '/api/projects');
+    const projects = d.projects || [];
+    if (projects.length === 0) {
+      addEvent('PROJECTS', '暂无项目，用 /new <名称> 创建', 'info');
+      return;
+    }
+    const lines = projects.map(p => {
+      const mark = p.active ? ' ◀' : '';
+      return `  ${p.name}${mark}`;
+    });
+    addEvent('PROJECTS', '项目列表：\n' + lines.join('\n'));
+    eventLogWrap.open = true;
+  } catch (err) {
+    addEvent('ERR', '获取项目列表失败: ' + err.message, 'error');
+  }
+}
+
 function showHelp() {
   const html = COMMANDS.map(c => `<b>${c.cmd}</b> ${c.args} — ${c.desc}`).join('\n');
   addEvent('HELP', '命令列表');
@@ -305,12 +424,9 @@ function showHelp() {
   div.className = 'help-block';
   div.innerHTML = html;
   eventLog.appendChild(div);
-  // auto-open event log to show help
   eventLogWrap.open = true;
   eventLog.scrollTop = eventLog.scrollHeight;
 }
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 // ═══════════════════════════════════════════
 //  FILES TAB
@@ -343,9 +459,9 @@ function renderTree(nodes, depth = 0) {
     }
     ul.appendChild(li);
   }
-  const container = $('#file-tree');
-  container.innerHTML = '';
-  container.appendChild(ul);
+  const c = $('#file-tree');
+  c.innerHTML = '';
+  c.appendChild(ul);
 }
 
 async function viewFile(node) {
@@ -374,11 +490,11 @@ async function loadSettings() {
     const s = await api('GET', '/api/status');
     $('#review-toggle').checked = s.reviewEnabled || false;
     $('#model-info').textContent = [
-      `模型: ${s.provider || '-'}/${s.modelName || '-'}`,
-      `章节: ${s.chapter || 0} / ${s.totalChapters || '?'}`,
-      `字数: ${s.wordCount || 0}`,
-      `项目: ${s.novelName || '-'}`,
-      `花费: $${(s.totalCostUSD || 0).toFixed(3)}`,
+      `模型: ${s.provider||s.Provider||'-'}/${s.modelName||s.ModelName||'-'}`,
+      `章节: ${s.chapter||s.CurrentChapter||0} / ${s.totalChapters||s.TotalChapters||'?'}`,
+      `字数: ${s.wordCount||s.TotalWordCount||0}`,
+      `项目: ${s.novelName||s.NovelName||'-'}`,
+      `花费: $${(s.totalCostUSD||s.TotalCostUSD||0).toFixed(3)}`,
     ].join('\n');
   } catch {}
 }
@@ -396,6 +512,10 @@ $('#review-toggle')?.addEventListener('change', async () => {
 //  INIT
 // ═══════════════════════════════════════════
 
+// Restore persisted state
 connectSSE();
-updateTopbar();
+updateTopbar().then(() => {
+  // After status loads, try to restore persisted stream
+  loadState();
+});
 setInterval(updateTopbar, 15000);
