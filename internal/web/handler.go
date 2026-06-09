@@ -56,6 +56,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		h.serveStatic(w, r)
+	case strings.HasPrefix(r.URL.Path, "/static/") && r.Method == http.MethodGet:
+		h.serveStaticFile(w, r)
 	case r.URL.Path == "/api/stream" && r.Method == http.MethodGet:
 		h.serveSSE(w, r)
 	case r.URL.Path == "/api/status" && r.Method == http.MethodGet:
@@ -108,6 +110,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveReviewApprove(w, r)
 	case r.URL.Path == "/api/review/skip" && r.Method == http.MethodPost:
 		h.serveReviewSkip(w, r)
+	case r.URL.Path == "/api/review/feedback" && r.Method == http.MethodPost:
+		h.serveReviewFeedback(w, r)
 	case r.URL.Path == "/api/chapter-review/approve" && r.Method == http.MethodPost:
 		h.serveChapterReviewApprove(w, r)
 	case r.URL.Path == "/api/chapter-review/skip" && r.Method == http.MethodPost:
@@ -138,6 +142,30 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+func (h *Handler) serveStaticFile(w http.ResponseWriter, r *http.Request) {
+	filePath := "static" + strings.TrimPrefix(r.URL.Path, "/static")
+	data, err := staticFS.ReadFile(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// MIME detection by extension
+	ct := "application/octet-stream"
+	switch {
+	case strings.HasSuffix(r.URL.Path, ".css"):
+		ct = "text/css; charset=utf-8"
+	case strings.HasSuffix(r.URL.Path, ".js"):
+		ct = "application/javascript; charset=utf-8"
+	case strings.HasSuffix(r.URL.Path, ".html"):
+		ct = "text/html; charset=utf-8"
+	case strings.HasSuffix(r.URL.Path, ".json"):
+		ct = "application/json"
+	}
+	w.Header().Set("Content-Type", ct)
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 }
@@ -604,11 +632,26 @@ func (h *Handler) serveProjectSwitch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// looksLikeProject 检查目录是否像小说项目（含 chapters/ / meta/ / outline/ 子目录）。
+// looksLikeProject 检查目录是否为有效项目目录。
+// 优先检查 .ainovel-project 标记文件（新建项目时创建）；
+// 兼容检查 chapters/ / meta/ / outline/ 子目录（旧项目）。
 func looksLikeProject(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	name := filepath.Base(dir)
+	if strings.HasPrefix(name, ".") {
+		return false
+	}
+	// 新建项目标记文件
+	if _, err := os.Stat(filepath.Join(dir, ".ainovel-project")); err == nil {
+		return true
+	}
+	// 兼容旧项目：有 chapters/ / meta/ / outline/ 之一即视为项目
 	for _, sub := range []string{"chapters", "meta", "outline"} {
-		info, err := os.Stat(filepath.Join(dir, sub))
-		if err == nil && info.IsDir() {
+		sinfo, err := os.Stat(filepath.Join(dir, sub))
+		if err == nil && sinfo.IsDir() {
 			return true
 		}
 	}
@@ -641,6 +684,8 @@ func (h *Handler) serveProjectCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	// 创建项目标记文件，使新项目在项目列表中可见
+	os.WriteFile(filepath.Join(newDir, ".ainovel-project"), []byte(""), 0644)
 
 	// 切换到新项目
 	if err := h.rt.SetDir(newDir); err != nil {
@@ -1034,6 +1079,10 @@ func (h *Handler) serveStylesList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		label := strings.Title(strings.ReplaceAll(name, "-", " "))
+		// 读取自定义 label（如果有的话）
+		if labelBytes, err := os.ReadFile(filepath.Join(dir, name+".label")); err == nil {
+			label = string(labelBytes)
+		}
 		custom = append(custom, styleEntry{
 			Name:     name,
 			Label:    label,
@@ -1096,15 +1145,29 @@ func (h *Handler) serveStyleFilePut(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "读取 body 失败"})
 		return
 	}
+	// 解析 JSON，提取 content 和 label 字段
+	var req struct {
+		Content string `json:"content"`
+		Label   string `json:"label,omitempty"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json: " + err.Error()})
+		return
+	}
 	dir := h.stylesDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	path := filepath.Join(dir, name+".md")
-	if err := os.WriteFile(path, body, 0644); err != nil {
+	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	// 保存 label（如果有的话）
+	if req.Label != "" {
+		labelPath := filepath.Join(dir, name+".label")
+		os.WriteFile(labelPath, []byte(req.Label), 0644)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"name": name, "saved": true})
 }
@@ -1125,6 +1188,8 @@ func (h *Handler) serveStyleFileDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	// 同时删除 label 文件
+	os.Remove(filepath.Join(h.stylesDir(), name+".label"))
 	writeJSON(w, http.StatusOK, map[string]any{"name": name, "deleted": true})
 }
 
@@ -1343,6 +1408,31 @@ func (h *Handler) serveReviewSkip(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "skipped"})
 }
 
+// serveReviewFeedback 审查期间发送反馈：构建完整上下文 + 用户反馈。
+func (h *Handler) serveReviewFeedback(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "read body failed"})
+		return
+	}
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text is required"})
+		return
+	}
+	if err := h.rt.SendReviewFeedback(req.Text); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "feedback_sent"})
+}
+
 // ── 章节审查操作 ──
 
 // serveChapterReviewApprove 章节审查通过，继续下一章。
@@ -1368,8 +1458,9 @@ func (h *Handler) serveChapterReviewSkip(w http.ResponseWriter, r *http.Request)
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		// 编码失败已无法追加 body，仅打日志
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		_ = err
 	}
 }

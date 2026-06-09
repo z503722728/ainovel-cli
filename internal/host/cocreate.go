@@ -59,7 +59,7 @@ const (
 	tagSuggestions = "suggestions"
 )
 
-func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, sessions *store.SessionStore, history []CoCreateMessage, onProgress func(kind, text string)) (reply CoCreateReply, err error) {
+func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, sessions *store.SessionStore, history []CoCreateMessage, _ []agentcore.Tool, onProgress func(kind, text string)) (reply CoCreateReply, err error) {
 	if len(history) == 0 {
 		return CoCreateReply{}, fmt.Errorf("cocreate history is empty")
 	}
@@ -77,6 +77,8 @@ func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, sessions *s
 		switch strings.ToLower(strings.TrimSpace(item.Role)) {
 		case "assistant":
 			msgs = append(msgs, assistantMsg(content))
+		case "system":
+			msgs = append(msgs, agentcore.SystemMsg(content))
 		default:
 			msgs = append(msgs, agentcore.UserMsg(content))
 		}

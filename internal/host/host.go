@@ -467,6 +467,78 @@ func (h *Host) ResumeAfterReviewWithAction(action string) error {
 	return h.ResumeAfterReview()
 }
 
+// SendReviewFeedback 审查期间发送反馈：构建完整上下文 + 用户反馈，重新启动 coordinator。
+func (h *Host) SendReviewFeedback(text string) error {
+	// Abort 任何残留 coordinator
+	h.mu.Lock()
+	lc := h.lifecycle
+	h.mu.Unlock()
+	if lc == lifecycleRunning {
+		h.Abort()
+	}
+	select {
+	case <-h.done:
+	default:
+	}
+	h.mu.Lock()
+	if h.lifecycle != lifecycleIdle {
+		h.mu.Unlock()
+		<-h.done
+	} else {
+		h.mu.Unlock()
+	}
+
+	h.mu.Lock()
+	if h.lifecycle != lifecycleIdle {
+		h.mu.Unlock()
+		return fmt.Errorf("host not idle")
+	}
+	h.mu.Unlock()
+
+	h.emitEvent(Event{
+		Time:     time.Now(),
+		Category: "USER",
+		Summary:  "[审查反馈] " + text,
+		Level:    "info",
+	})
+
+	// 写入 PendingSteer 供 buildResumePrompt 读取
+	if err := h.store.RunMeta.SetPendingSteer(text); err != nil {
+		slog.Warn("审查反馈写入 PendingSteer 失败", "module", "host", "err", err)
+	}
+
+	h.refreshWriterRestore()
+	h.observer.setAborting(false)
+	h.router.ResetDedupe()
+	h.router.Enable()
+
+	go func() {
+		prompt, _, err := buildResumePrompt(h.store)
+		if err != nil {
+			slog.Error("审查反馈：构建 resume prompt 失败", "module", "host", "err", err)
+			return
+		}
+		if prompt == "" {
+			prompt = "[恢复] 继续当前创作任务。\n"
+		}
+		// 追加用户反馈
+		prompt += fmt.Sprintf("\n\n用户在审查阶段提交了反馈意见：\n「%s」\n请根据反馈调整内容后继续。", text)
+
+		if err := h.coordinator.Prompt(prompt); err != nil {
+			slog.Error("审查反馈：resume prompt 失败", "module", "host", "err", err)
+			return
+		}
+		h.router.Dispatch()
+
+		h.mu.Lock()
+		h.lifecycle = lifecycleRunning
+		h.mu.Unlock()
+		h.waitDone()
+	}()
+
+	return nil
+}
+
 // Progress 返回当前创作进度。
 func (h *Host) Progress() *domain.Progress {
 	p, _ := h.store.Progress.Load()
@@ -883,7 +955,36 @@ func (h *Host) ReplayQueue(afterSeq int64) ([]domain.RuntimeQueueItem, error) {
 // ── 共创 ──
 
 func (h *Host) CoCreateStream(ctx context.Context, history []CoCreateMessage, onProgress func(kind, text string)) (CoCreateReply, error) {
-	return coCreateStream(ctx, h.models, h.store.Sessions, history, onProgress)
+	// Prepend project context with key file contents so the AI knows the project state
+	contextMsg := h.buildCoCreateContext()
+	if contextMsg != "" {
+		history = append([]CoCreateMessage{{Role: "system", Content: contextMsg}}, history...)
+	}
+	return coCreateStream(ctx, h.models, h.store.Sessions, history, nil, onProgress)
+}
+
+// buildCoCreateContext 构建共创对话的项目上下文（含关键文件内容）。
+func (h *Host) buildCoCreateContext() string {
+	progress, err := h.store.Progress.Load()
+	if err != nil || progress == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("当前项目信息：\n")
+	if progress.NovelName != "" {
+		b.WriteString(fmt.Sprintf("- 书名：《%s》\n", progress.NovelName))
+	}
+	b.WriteString(fmt.Sprintf("- 阶段：%s\n", progress.Phase))
+	if len(progress.CompletedChapters) > 0 {
+		b.WriteString(fmt.Sprintf("- 已完成 %d 章，共 %d 字\n", len(progress.CompletedChapters), progress.TotalWordCount))
+	}
+	if progress.CurrentChapter > 0 {
+		b.WriteString(fmt.Sprintf("- 当前正在写第 %d 章\n", progress.CurrentChapter))
+	}
+	b.WriteString(fmt.Sprintf("- 写作风格：%s\n", h.cfg.Style))
+	b.WriteString("\n你可以使用 read_chapter 和 novel_context 工具查看项目文件内容。")
+	b.WriteString("\n请基于以上项目信息与用户对话。如果某些设定尚未确定，帮助用户澄清。")
+	return b.String()
 }
 
 // ── 工具 ──
